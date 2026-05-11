@@ -1,6 +1,6 @@
-                                                    **中文** |[English](README_EN.md)
-
----
+<p align="center">
+  中文 | <a href="./README_EN.md">English</a>
+</p>
 
 # 🚀 OpenClaw-Matrix：自主多智能体矩阵引擎
 
