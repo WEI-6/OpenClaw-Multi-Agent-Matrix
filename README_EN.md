@@ -23,8 +23,8 @@ The core of the system is the `state.md` file, which acts as a "Shared Blackboar
 1. **State Centralization (`state.md`)**: No direct agent-to-agent whispering. All communication flows through a single, structured Markdown file to ensure a "Single Source of Truth."
 2. **Strict Sandbox Isolation**: Each agent (Researcher, Executor, Debugger) operates in its own OpenClaw Session, maintaining a "clean" context focused only on its specific duty.
 3. **Summary-Driven Execution**: Agents are required to output structured summaries. The Main Controller makes routing decisions based solely on these summaries, significantly saving tokens and reducing hallucinations.
-4. **Lifecycle Automation**: From new task detection (via `New_Task_Flag`) to user-confirmed archiving, the system manages the entire task lifecycle autonomously.
-5. **Runtime-Verifiable Dispatch**: Agent registration, role prompts, and workspace files only indicate that static configuration is complete. Main must actually invoke the assigned sub-Agents per the `Dispatch Plan`, create independent Sessions for them, and verify that results have been written back to the same `state.md`.
+4. **Lifecycle Automation**: From new task detection (via `New_Task_Flag`) to automatic internal archiving after Judge PASS, the system manages the entire task lifecycle autonomously. User confirmation is only required for destructive/irreversible/external/privacy-sensitive actions.
+5. **Runtime-Verifiable Dispatch**: Agent registration, role prompts (`.md` format), and workspace files only indicate that static configuration is complete. Main must actually invoke the assigned sub-Agents per the `Dispatch Plan`, create independent Sessions for them, and verify that results have been written back to the same `state.md`.
 
 ---
 
@@ -36,14 +36,13 @@ The core of the system is the `state.md` file, which acts as a "Shared Blackboar
 | **Research Pool** | `Res_1~3` | Tech research, architecture design, and manual writing. | **Execution Manual** |
 | **Execution Pool** | `Exe_1~3` | Code implementation, environment setup, and deployment. | **Final Artifacts** |
 | **Debug Pool** | `Dbg_1~3` | Logic, boundary, and performance validation. | **Debug Feed / Logs** |
-| **Arbitrator** | `Judge` | Aggregating debug reports and final evaluation. | **Evaluation / Approval** |
+| **Arbitrator** | `Judge` | Aggregating debug reports and final evaluation. | **Evaluation / Verdict** |
 
 ---
 
 ## 🚀 Quick Start & Self-Configuration
 
 The most powerful aspect of this project is its **Auto-Config** capability. Follow these steps to let the system build itself:
-
 ### 1. Prerequisites
 - Ensure [OpenClaw](https://github.com/OpenClaw/OpenClaw) is installed and your LLM API is configured.
 - Prepare the project directory:
@@ -60,7 +59,7 @@ Start your OpenClaw session and send the following instruction to the **Main Age
 
 **The system will automatically:**
 - Register all Agent IDs and Session IDs.
-- Inject the specialized Prompts for each role from the `/prompts` folder.
+- Inject the specialized prompts for each role from the `/prompts` folder (`.md` format).
 - Generate the `state.md` template in your workspace.
 - Monitor for the `New_Task_Flag` to begin execution.
 - Grant Main restricted sub-Agent dispatch permissions, allowing only registered Matrix roles to be invoked.
@@ -93,7 +92,7 @@ Acceptance requires all of the following to be true simultaneously:
 
 ## 📂 Directory Structure
 
-- `/prompts`: Contains the specialized protocols (RES, EXE, DBG, JUDGE) in `.txt` format.
+- `/prompts`: Contains the specialized protocol prompts for each role (`main.md`, `res.md`, `exe.md`, `dbg.md`, `judge.md`).
 - `/workspace`: The active `state.md` bus and execution environment.
 - `/workspace/history`: Automatic archives of completed tasks.
 - `Architecture_v5.0.md`: The "Source of Truth" document used for self-configuration.
@@ -104,9 +103,37 @@ Acceptance requires all of the following to be true simultaneously:
 ## 🔄 Self-Healing Loop Logic
 
 When an error occurs in the `Artifacts` section:
-1. **Detection**: `Debugger` identifies the failure and writes a `FAIL` report to the Quality Center.
-2. **Routing**: `Main` reads the report and re-assigns the `Executor` with specific error logs.
-3. **Escalation**: If the loop repeats 3 times without success, `Main` triggers a "Plan Reset," sending the task back to the `Researcher` to redesign the approach.
+1. **Detection**: `Debugger` identifies the failure and writes a `FAIL` report to `## [3] Quality Center` (including root-cause signature and severity level).
+2. **Routing**: `Main` reads the report and re-assigns the `Executor` with specific error logs, preserving already-passed nodes.
+3. **Escalation**: If the same stage/root-cause signature fails **3 consecutive times**, the circuit opens (`CIRCUIT_OPEN`): dispatch stops, the task is returned to `Researcher` for a materially revised plan, or the system enters `WAITING_USER` for human intervention. The counter resets only after verifiable progress or a materially changed plan.
+
+### Task Triage Rules
+
+After receiving a task, Main applies hard overrides first, then additive scoring to determine the mode, and records it in `state.md`:
+
+| Mode | Score | Use Case |
+|---|---|---|
+| `MAIN_ONLY` | 0–2 | Pure conversation, read-only lookup, tiny reversible operations |
+| `MINIMAL` | 3–5 | Single specialist + proportionate verification |
+| `FULL` | ≥6 | Full Researcher → Executor → Debugger → Judge DAG |
+
+Hard overrides (take precedence over score): user explicitly requests Matrix/independent QA → `FULL`; safety confirmation required → `WAITING_USER`; pure conversation/read-only → `MAIN_ONLY`.
+
+### Lifecycle States
+
+`INIT → TRIAGED → DISPATCHING → RUNNING → VERIFYING → JUDGING → ARCHIVING → COMPLETED`
+
+Side states: `WAITING_USER`, `RETRYING`, `RECOVERING`, `CIRCUIT_OPEN`, `FAIL`
+
+### Node Ledger
+
+Each dispatched node is tracked in `[1] Dispatch Plan` with: role, dependency, status (`BLOCKED_BY_DEPENDENCY / READY / RUNNING / PASS / FAIL / RETRYING / CIRCUIT_OPEN`), authorized section, Agent ID, Session Key/Run ID, retry count, timestamps, receipt, and write-back evidence. Main only dispatches `READY` nodes; downstream nodes unlock only after prerequisite nodes reach `PASS`.
+
+### Completion Gate & Auto-Archive
+
+The completion gate requires: deliverables satisfy acceptance criteria; all required checks pass; every required ledger node is `PASS`; no unresolved blockers or open circuits; all receipts/Task_IDs/write-back evidence validate; Judge returns `PASS`; structure and safety constraints hold.
+
+After Judge `PASS`, Main immediately performs an internal atomic idempotent archive (named by `Task_ID`), records path and checksum evidence, resets active state, and reports completion — **no routine user confirmation required**. Destructive/irreversible operations, external publication, credential or privacy-sensitive access, and permission/security-boundary changes **still require** user consent.
 
 ---
 
