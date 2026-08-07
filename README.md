@@ -24,6 +24,7 @@
 2. **严格沙盒隔离**：每个智能体（研究员、执行者、调试员）在其独立的 OpenClaw 会话中运行，保持"干净"的上下文，专注于各自的职责。
 3. **摘要驱动执行**：智能体必须输出结构化摘要。主控制器仅根据这些摘要做出路由决策，从而大幅节省 Token 消耗并减少幻觉。
 4. **生命周期自动化**：从新任务检测（通过 `New_Task_Flag`）到用户确认归档，系统自主管理完整的任务生命周期。
+5. **运行时可验证调度**：Agent 注册、角色提示词和工作区文件只代表静态配置完成。Main 必须按照 `Dispatch Plan` 真正调用被分配的子 Agent，为其创建独立 Session，并验证结果已回写同一份 `state.md`。
 
 ---
 
@@ -62,6 +63,31 @@ mkdir -p workspace/history
 - 从 `/prompts` 目录为每个角色注入专属提示词。
 - 在工作区生成 `state.md` 模板。
 - 监听 `New_Task_Flag` 以启动执行流程。
+- 为 Main 开启受限的子 Agent 调度权限，并仅允许调用已注册的 Matrix 角色。
+- 配置完成后执行一次运行时验收，确认子 Agent 的独立 Session、共享黑板读写和结构化回执均真实生效。
+
+### 3. 运行时调度验收
+
+仅生成角色名单、提示词、工作区和配置文件，**不代表 Matrix 已经投入运行**。如果没有真实的子 Agent Session 和共享黑板写回，系统仍然只是静态部署，并未启用运行时调度器。
+
+配置完成后，Main Agent 必须执行一次最小验收任务：
+
+1. 在 `state.md` 中创建唯一 `Task_ID`，写入明确的 `[Dispatch Plan]`。
+2. 按计划真实调用至少一个非 Main 子 Agent，而不是由 Main 模拟该角色输出。
+3. 确认该角色运行在独立 Session 中，并记录实际的 Agent ID、Session ID 或 Run ID。
+4. 子 Agent 必须先读取同一绝对路径下的 `state.md`，再仅向其授权章节写入结构化结果。
+5. Main 再次读取 `state.md`，确认 `Task_ID` 一致、文件修改时间已更新且角色结果真实存在。
+6. 由 Judge 或 Main 对以上证据给出 `PASS / FAIL` 结论；任一证据缺失均视为运行时调度未启用。
+
+验收至少应同时满足以下条件：
+
+- `state.md` 中存在当前任务的唯一 `Task_ID` 和最近更新时间。
+- 至少一个已分配的非 Main Agent 存在真实 Session / Run。
+- 子 Agent 回执中的 `Task_ID` 与共享黑板一致。
+- 子 Agent 的结果已经写入同一份共享黑板，而不是只返回在聊天消息中。
+- Main 或 Judge 已记录最终验收结论。
+
+> **重要说明：** `openclaw.json.example` 中的角色映射和 `matrix-config` 一类描述文件不会自动成为调度器。实际部署时仍需按照当前 OpenClaw 版本配置 Main 的子 Agent 调用权限、Session 可见性及必要的 Agent-to-Agent 权限，并通过真实调用完成验收。
 
 ---
 

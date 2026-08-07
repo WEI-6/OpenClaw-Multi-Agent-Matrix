@@ -27,6 +27,8 @@
     系统不假设用户拥有固定模型列表。配置 Matrix 时，Main Agent 必须先读取用户 API 当前可用模型，再根据模型价格、上下文长度、能力偏向与子 Agent 任务类型，为每个子 Agent 分配合适模型。
 6.  **闭环自愈与熔断 (Self-Healing & Circuit Breaking)**
     通过“执行-调试-反馈”的小循环实现逻辑自愈。当循环次数达到阈值时触发熔断，强制回退至研究阶段或请求人工介入。
+7.  **运行时可验证性 (Runtime Verifiability)**
+    Agent ID、角色 Prompt、Workspace 和 Session 映射只属于静态部署。系统必须由 Main 按 DAG 真实调用被分配的子 Agent，并以独立 Session、统一 `Task_ID`、共享黑板写回和最终验收记录证明运行时调度已经生效。
 
 ---
 
@@ -57,9 +59,13 @@
 
 ### 3. 路由规划 (Routing)
 * **组合决策**：Main Agent 分析原始需求，在 `state.md` 中写入 `[Dispatch Plan]`（例如：`res_1 -> exe_1 -> [dbg_1, dbg_2]`）。
+* **真实调度**：写入计划后，Main Agent 必须通过 OpenClaw 当前支持的子 Agent / Session 调用机制，按照显式 Agent ID 创建或调用对应角色的独立 Session。不得由 Main 在自身 Session 中模拟 Researcher、Executor、Debugger 或 Judge 的输出。
+* **调度证据**：每个被激活角色都应在 `state.md` 中留下 Agent ID、Session ID 或 Run ID、开始/完成时间、负责章节与结果摘要。
 
 ### 4. 链式执行与自愈循环 (Execution & Loop)
 * **任务流转**：Researcher 产出计划 -> Executor 产出结果 -> Debugger 提交报告。
+* **总线同步**：每个子 Agent 在开始前必须读取同一绝对路径下的 `state.md` 并核对 `Task_ID`；完成后仅更新自身授权章节。Main 根据写回结果决定下一个 DAG 节点。
+* **Session 隔离**：每次角色调用必须产生可审计的非 Main Session / Run。不同角色不得共享 Main 的会话上下文，也不得仅依赖聊天转述代替共享黑板。
 * **自愈机制**：若 Debugger 返回 `FAIL`，Main 指派对应 Executor 参考错误日志进行修复。
 * **熔断处理**：若同一环节循环超过 3 次，系统自动降级，打回 Researcher 重新设计方案。
 
@@ -73,6 +79,23 @@
     * 用户确认后，修改 `Status` 为 `COMPLETED`。
     * 系统自动将当前 `state.md` 备份至 `history/` 目录，并以 `Task_ID` 命名。
     * 重置 `state.md` 为初始模版，等待下一条指令。
+
+### 7. 配置后运行时验收 (Post-Configuration Runtime Acceptance)
+* **目的**：防止系统只创建角色名单、提示词和目录，却没有真正启用运行时调度。
+* **最小验收拓扑**：配置完成后执行 `main -> res_1 -> judge -> main`，也可使用与当前部署规模等价的最小链路。
+* **验收步骤**：
+    * Main 归档旧状态，在 `state.md` 中创建唯一 `Task_ID` 和验收专用 `[Dispatch Plan]`。
+    * Main 真实调用 `res_1`，要求其在独立 Session 中读取共享黑板，并仅更新 `res_1` 对应章节。
+    * Main 核对共享黑板的绝对路径、`Task_ID`、修改时间与角色结果。
+    * Main 真实调用 Judge，由 Judge 独立读取证据并在 `[Evaluation]` 中写入 `PASS / FAIL`。
+    * Main 记录最终状态、真实 Session / Run 标识和归档路径。
+* **通过条件**：以下证据必须同时存在：
+    1. `state.md` 具有当前唯一 `Task_ID` 和最近修改时间。
+    2. 至少一个非 Main 的已配置 Agent 存在真实 Session / Run。
+    3. 子 Agent 回执包含与共享黑板相同的 `Task_ID`。
+    4. 子 Agent 已将结果写入同一份 `state.md` 的授权章节。
+    5. Main 或 Judge 已记录验收结论和对应证据。
+* **失败处理**：若任一条件缺失，`Status` 必须标记为 `RUNTIME_NOT_READY` 或 `FAIL`，不得宣称 Matrix 已启用。Main 应检查子 Agent 调用权限、Agent ID 映射、Session 可见性、Workspace 路径、文件权限和 Prompt 注入后重新验收。
 
 ---
 
@@ -264,7 +287,9 @@ persist(assignments)
 }
 ```
 
+> **配置边界：** 上述映射用于描述 Matrix 的角色与共享状态关系，不会仅凭文件存在就自动触发子 Agent。实际配置必须使用当前 OpenClaw 版本支持的 Agent 注册、Main 子 Agent allowlist、Session 可见性和必要的 Agent-to-Agent 权限字段。配置写入后必须通过“配置后运行时验收”，不能只检查 JSON 语法或角色目录是否存在。
+
 ### 5. 提示词 (Prompt) 策略
-* **Main Agent**：必须包含“询问用户是否完成任务”以及“处理 New_Task_Flag”的逻辑逻辑。
+* **Main Agent**：必须包含“询问用户是否完成任务”以及“处理 New_Task_Flag”的逻辑；对于非简单任务，还必须读取 `[Dispatch Plan]`、真实调用被分配的子 Agent，并核对运行时证据。
 * **Worker Agents**：必须遵循“协议化输出”，严禁输出任何非 `### Summary` 或非 `state.md` 章节的内容。
 * **权限控制**：通过 System Prompt 强制各 Agent 仅拥有对自身章节的“写”权限和对他人的“读”权限。

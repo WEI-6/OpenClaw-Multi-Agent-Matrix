@@ -24,6 +24,7 @@ The core of the system is the `state.md` file, which acts as a "Shared Blackboar
 2. **Strict Sandbox Isolation**: Each agent (Researcher, Executor, Debugger) operates in its own OpenClaw Session, maintaining a "clean" context focused only on its specific duty.
 3. **Summary-Driven Execution**: Agents are required to output structured summaries. The Main Controller makes routing decisions based solely on these summaries, significantly saving tokens and reducing hallucinations.
 4. **Lifecycle Automation**: From new task detection (via `New_Task_Flag`) to user-confirmed archiving, the system manages the entire task lifecycle autonomously.
+5. **Runtime-Verifiable Dispatch**: Agent registration, role prompts, and workspace files only indicate that static configuration is complete. Main must actually invoke the assigned sub-Agents per the `Dispatch Plan`, create independent Sessions for them, and verify that results have been written back to the same `state.md`.
 
 ---
 
@@ -62,6 +63,31 @@ Start your OpenClaw session and send the following instruction to the **Main Age
 - Inject the specialized Prompts for each role from the `/prompts` folder.
 - Generate the `state.md` template in your workspace.
 - Monitor for the `New_Task_Flag` to begin execution.
+- Grant Main restricted sub-Agent dispatch permissions, allowing only registered Matrix roles to be invoked.
+- Perform a runtime acceptance check upon completion to confirm that sub-Agent independent Sessions, shared blackboard read/write, and structured receipts are all genuinely active.
+
+### 3. Runtime Dispatch Acceptance
+
+Simply generating a role roster, prompts, workspace, and config files **does not mean the Matrix is operational**. Without real sub-Agent Sessions and shared blackboard write-back, the system remains a static deployment with no runtime scheduler enabled.
+
+After configuration, the Main Agent must complete a minimal acceptance task:
+
+1. Create a unique `Task_ID` in `state.md` and write a clear `[Dispatch Plan]`.
+2. Actually invoke at least one non-Main sub-Agent per the plan — do not have Main simulate that role's output.
+3. Confirm that the role is running in an independent Session and record the actual Agent ID, Session ID, or Run ID.
+4. The sub-Agent must first read `state.md` from the same absolute path, then write structured results only to its authorized section.
+5. Main reads `state.md` again to confirm the `Task_ID` matches, the file modification time has updated, and the role's result genuinely exists.
+6. Judge or Main issues a `PASS / FAIL` verdict based on the above evidence; any missing evidence is treated as runtime dispatch not enabled.
+
+Acceptance requires all of the following to be true simultaneously:
+
+- A unique `Task_ID` and recent update time for the current task exist in `state.md`.
+- At least one assigned non-Main Agent has a real Session / Run.
+- The `Task_ID` in the sub-Agent's receipt matches the shared blackboard.
+- The sub-Agent's result has been written to the same shared blackboard, not just returned in a chat message.
+- Main or Judge has recorded the final acceptance verdict.
+
+> **Important:** Role mappings in `openclaw.json.example` and descriptor files like `matrix-config` do not automatically become a scheduler. Actual deployment still requires configuring Main's sub-Agent invocation permissions, Session visibility, and necessary Agent-to-Agent permissions per the current OpenClaw version, and completing acceptance through real invocations.
 
 ---
 
