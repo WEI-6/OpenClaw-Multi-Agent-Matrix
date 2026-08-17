@@ -33,10 +33,12 @@ The core of the system is the `state.md` file, which acts as a "Shared Blackboar
 | Role Group | ID | Responsibility | Key Output |
 | :--- | :--- | :--- | :--- |
 | **Controller** | `Main` | Global routing, DAG scheduling, and User interaction. | Dispatching & State Updates |
-| **Research Pool** | `Res_1~3` | Tech research, architecture design, and manual writing. | **Execution Manual** |
-| **Execution Pool** | `Exe_1~3` | Code implementation, environment setup, and deployment. | **Final Artifacts** |
+| **Research Pool** | `Res_1~2` | Tech research, architecture design, and manual writing. | **Execution Manual** |
+| **Execution Pool** | `Exe_1~2` | Code implementation, environment setup, and deployment. | **Final Artifacts** |
 | **Debug Pool** | `Dbg_1~3` | Logic, boundary, and performance validation. | **Debug Feed / Logs** |
 | **Arbitrator** | `Judge` | Aggregating debug reports and final evaluation. | **Evaluation / Verdict** |
+
+> `res_1~2` and `exe_1~2` are enabled by default (pools can be extended to `_3` by adding an entry to `agents.list` in `openclaw.json` and creating the matching directory under `workspace/agents/`).
 
 ---
 
@@ -47,20 +49,29 @@ The most powerful aspect of this project is its **Auto-Config** capability. Foll
 - Ensure [OpenClaw](https://github.com/OpenClaw/OpenClaw) is installed and your LLM API is configured.
 - Prepare the project directory:
 ```bash
-git clone https://github.com/YourUsername/OpenClaw-Matrix.git
-cd OpenClaw-Matrix
-mkdir -p workspace/history
+git clone https://github.com/WEI-6/OpenClaw-Multi-Agent-Matrix.git
+cd OpenClaw-Multi-Agent-Matrix
 ```
 
-### 2. The "Self-Bootstrapping" Command
+### 2. Configure OpenClaw Session Mapping
+
+See [`openclaw.json.example`](./openclaw.json.example) (real OpenClaw config format with all 9 agents in `agents.list` and workspace mapping). Copy it to your own `openclaw.json` and replace the placeholders:
+
+```bash
+cp openclaw.json.example ~/.openclaw/openclaw.json
+```
+
+> ⚠️ Each sub-agent workspace must exist: `workspace/agents/{res_1,res_2,exe_1,exe_2,dbg_1,dbg_2,dbg_3,judge}/` (role-specific `AGENTS.md` prompts are included in the repo).
+
+### 3. The "Self-Bootstrapping" Command
 Start your OpenClaw session and send the following instruction to the **Main Agent**:
 
 > *"Please read and parse the `Architecture_v5.0.md` file in the root directory. Based on this document, autonomously configure my OpenClaw Matrix sessions, initialize the `state.md` bus, inject the role-specific prompts, and enter the INIT state for a new task."*
 
 **The system will automatically:**
 - Register all Agent IDs and Session IDs.
-- Inject the specialized prompts for each role from the `/prompts` folder (`.md` format).
-- Generate the `state.md` template in your workspace.
+- Inject the specialized Prompts for each role from the `/prompts` folder.
+- Generate the `state.md` template in your workspace (see [`workspace/state.md.example`](./workspace/state.md.example)).
 - Monitor for the `New_Task_Flag` to begin execution.
 - Grant Main restricted sub-Agent dispatch permissions, allowing only registered Matrix roles to be invoked.
 - Perform a runtime acceptance check upon completion to confirm that sub-Agent independent Sessions, shared blackboard read/write, and structured receipts are all genuinely active.
@@ -88,6 +99,10 @@ Acceptance requires all of the following to be true simultaneously:
 
 > **Important:** Role mappings in `openclaw.json.example` and descriptor files like `matrix-config` do not automatically become a scheduler. Actual deployment still requires configuring Main's sub-Agent invocation permissions, Session visibility, and necessary Agent-to-Agent permissions per the current OpenClaw version, and completing acceptance through real invocations.
 
+### 4. Initialize Sub-Agents (First Run)
+
+When a sub-agent starts for the first time, OpenClaw initializes `MEMORY.md` and the `memory/` directory (memory index) in its workspace. If a sub-agent has never been started, its memory index is simply not built — that is expected, and it will be initialized automatically once you start the corresponding session. Live runtime files such as `workspace/state.md` are excluded via `.gitignore` and never committed.
+
 ---
 
 ## 📂 Directory Structure
@@ -96,7 +111,7 @@ Acceptance requires all of the following to be true simultaneously:
 - `/workspace`: The active `state.md` bus and execution environment.
 - `/workspace/history`: Automatic archives of completed tasks.
 - `Architecture_v5.0.md`: The "Source of Truth" document used for self-configuration.
-- `openclaw.json.example`: Template for session mapping.
+- `openclaw.json.example`: Template for session mapping (real OpenClaw format).
 
 ---
 

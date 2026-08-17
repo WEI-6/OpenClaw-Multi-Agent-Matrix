@@ -359,21 +359,25 @@ persist(assignments)
 * 配置写入后必须验证 OpenClaw 配置有效。
 
 ### 4. `openclaw.json` 配置映射
-```json
+
+> 注意：以下为**概念示意**（早期版本的 `bridges` 字段并非 OpenClaw 真实配置格式）。实际配置请使用仓库根目录的 [`openclaw.json.example`](./openclaw.json.example) —— 基于真实 OpenClaw `agents.list` 结构，包含 Main 与全部 8 个子 Agent 的注册与 workspace 映射，复制后替换模型占位符即可。
+
+```jsonc
+// 概念示意：真实格式见 openclaw.json.example
 {
-  "bridges": [
-    { "id": "main", "session_id": "main_v5", "is_controller": true },
-    { "id": "res_1", "session_id": "res_1" }, 
-    { "id": "res_2", "session_id": "res_2" },
-    { "id": "exe_1", "session_id": "exe_1" }, 
-    { "id": "exe_2", "session_id": "exe_2" },
-    { "id": "dbg_1", "session_id": "dbg_1" }, 
-    { "id": "dbg_2", "session_id": "dbg_2" },
-    { "id": "judge", "session_id": "judge_v5" }
-  ],
-  "workspace": { 
-    "state_file": "./workspace/state.md", 
-    "auto_archive": true 
+  "agents": {
+    "defaults": { "workspace": "<matrix-root>/workspace", "model": { "primary": "<main-model>" } },
+    "list": [
+      { "id": "main" },
+      { "id": "res_1",  "workspace": "<matrix-root>/workspace/agents/res_1" },
+      { "id": "res_2",  "workspace": "<matrix-root>/workspace/agents/res_2" },
+      { "id": "exe_1",  "workspace": "<matrix-root>/workspace/agents/exe_1" },
+      { "id": "exe_2",  "workspace": "<matrix-root>/workspace/agents/exe_2" },
+      { "id": "dbg_1",  "workspace": "<matrix-root>/workspace/agents/dbg_1" },
+      { "id": "dbg_2",  "workspace": "<matrix-root>/workspace/agents/dbg_2" },
+      { "id": "dbg_3",  "workspace": "<matrix-root>/workspace/agents/dbg_3" },
+      { "id": "judge",  "workspace": "<matrix-root>/workspace/agents/judge" }
+    ]
   }
 }
 ```
