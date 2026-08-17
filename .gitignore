@@ -1,21 +1,3 @@
-# --- Runtime state (never commit) ---
-# Active task bus / blackboard - contains live task data
-workspace/state.md
-# OpenClaw workspace runtime metadata
-workspace/openclaw-workspace-state.json
-# Task archive (auto-archived state.md snapshots)
-workspace/history/
-# Per-agent OpenClaw memory (MEMORY.md + daily notes, created on first run)
-workspace/agents/*/memory/
-workspace/agents/*/MEMORY.md
-workspace/memory/
-workspace/.dreams/
-# Bootstrap seed left from workspace creation (one-time runtime artifact)
-workspace/BOOTSTRAP.md
-
-# --- OS / editor ---
 .DS_Store
-Thumbs.db
-*.swp
-.idea/
-.vscode/
+.vscode
+MAM_state.md

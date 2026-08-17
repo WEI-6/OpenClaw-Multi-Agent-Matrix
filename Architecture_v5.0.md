@@ -4,43 +4,49 @@
 
 ## 一、 设计目的 (Design Purpose)
 
-本方案旨在通过工程化手段解决大模型在复杂任务中的**上下文污染**、**逻辑漂移**与**低效循环**问题。
+本方案以工程化方式降低复杂任务中的上下文污染、逻辑漂移、并发冲突与无效循环，并提供可移植、可恢复、可审计的多 Agent 协作协议。
 
-* **标准化协作**：定义统一的 Agent 通信协议，使多智能体能够像工业流水线一样精准协作。
-* **高可靠性**：引入多重质检（Debugger Pool）与中立仲裁（Judge），确保最终产出物的质量。
-* **无缝移植**：通过单一的 `state.md` 文件与标准化的配置文件，实现系统在不同 OpenClaw 实例间的快速部署。
-* **全生命周期管理**：涵盖从新任务识别、自动化执行、Judge PASS 后自动归档的全闭环流程；仅在破坏性/不可逆/外部/隐私敏感操作时才需用户确认。
+* **标准化协作**：以 Main 单写状态总线、Worker 只读执行并返回结构化回执的方式通信。
+* **可靠交付**：复杂任务采用 Research/Delivery 两层 DAG、隔离执行、集成回归与 Judge 门禁。
+* **动态适配**：按复杂度、可用角色、模型能力、成本和用户约束动态调度，不写死本机环境。
+* **全生命周期管理**：从任务识别、局部自愈到 Judge `PASS` 后长期记忆更新、归档与重置形成闭环。
+* **安全可移植**：发布文档只使用 `<workspace>`、`<project-root>`、`<task_folder>`、`<selected-model-id>` 等占位符；不得包含实际用户/主机路径、私有网络或 Provider、已安装模型 ID、运行中 Task/Session/Run、凭证或已删除文件名。
 
 ---
 
 ## 二、 设计理念 (Design Philosophy)
 
-1.  **状态中心化 (State Centralization)**
-    系统不依赖 Agent 间的直接传话，所有信息流转必须通过中心化的 `state.md`（共享黑板）。这确保了系统的"单一事实来源"。
-2.  **职责解耦与隔离 (Decoupling & Isolation)**
-    每个 Agent 拥有独立的 Session ID。通过 Prompt 限制其读写权限，确保执行者不被研究过程干扰，调试者专注于结果校验。
-3.  **摘要驱动通信 (Summary-Driven)**
-    子 Agent 仅向 `state.md` 写入结构化摘要。Main Agent 仅通过摘要进行逻辑决策，极大地节省了 Token 并降低了长上下文导致的幻觉。
-4.  **动态拓扑调度 (DAG Routing)**
-    系统支持任务的有向无环图（DAG）调度。Main Agent 可根据任务难度动态组合 Agent（如：1个研究员 + 2个执行员并行实现 + 3个调试员交叉验证）。
-5.  **动态模型适配 (Dynamic Model Allocation)**
-    系统不假设用户拥有固定模型列表。配置 Matrix 时，Main Agent 必须先读取用户 API 当前可用模型，再根据模型价格、上下文长度、能力偏向与子 Agent 任务类型，为每个子 Agent 分配合适模型。
-6.  **闭环自愈与熔断 (Self-Healing & Circuit Breaking)**
-    通过"执行-调试-反馈"的小循环实现逻辑自愈。同一阶段/根因签名连续失败 **3 次**触发熔断，强制回退至研究阶段或请求人工介入；仅在有可验证进展或方案实质变更后才重置计数器。
-7.  **运行时可验证性 (Runtime Verifiability)**
-    Agent ID、角色 Prompt、Workspace 和 Session 映射只属于静态部署。系统必须由 Main 按 DAG 真实调用被分配的子 Agent，并以独立 Session、统一 `Task_ID`、共享黑板写回和最终验收记录证明运行时调度已经生效。
+1. **Main 单写状态中心 (Main-Only State Authority)**
+   `<workspace>/state.md` 是任务的唯一主状态总线。仅 Main 可物理写入、更新、重置或归档；Researcher、Executor、Debugger、Judge、Claude Code 与 Codex 均只读总线，完成后向 Main 返回 `WORKER_COMPLETED` 回执及建议的 `State_Patch`。Main 验证后串行提交，Worker 可并行计算。协议不依赖 Worker Revision、CAS 或文件锁。
+2. **职责解耦与隔离 (Decoupling & Isolation)**
+   每个 Assignment 绑定独立 Session/Run、明确文件范围和验收标准。并行 Executor 使用独立工作树、分支、补丁或产物目录，不能直接争用同一工作树。
+3. **摘要与证据驱动 (Summary & Evidence Driven)**
+   状态总线只存状态、摘要、证据索引和 Digest；大产物与日志放在任务文件夹，敏感信息不得进入回执或状态。
+4. **渐进式两层 DAG (Progressive Two-Layer DAG)**
+   FULL 模式先建立 Research DAG，再随已验证研究结果用 `DAG_Update` 增量建立 Delivery DAG；部分研究完成即可安全解锁无争议节点。
+5. **动态模型适配 (Dynamic Model Allocation)**
+   从部署时实际可用模型动态发现并建立价格、上下文、推理、代码、速度、稳定性与工具能力画像，不预设 Provider 或模型 ID。
+6. **局部自愈与两级熔断 (Local Recovery & Two-Level Circuit Breaking)**
+   失败按 `Task_ID + Subtask_ID + Stage + Root_Cause_Signature` 隔离计数，先进行最多 3 次执行链重试，再退回 Researcher 进行最多 3 次实质修订；不影响无依赖链路。
+7. **运行时可验证 (Runtime Verifiability)**
+   静态角色/config 不等于已启用。配置后必须真实调用非 Main Agent，以 Assignment、Session/Run、回执和 Main 写入证据证明调度有效。
+8. **长期记忆最小化 (Minimal Durable Memory)**
+   `<task_folder>/MAM_state.md` 只保留跨任务有效信息；每个 Task 至多更新一次，且仅在 Judge `PASS` 后、归档或重置前更新并回读验证。
 
 ---
 
 ## 三、 角色定义与分工 (Role Definition & Division)
 
-| 角色组 | 实例 ID | 核心职责 | Session ID | 输出要求 |
+| 角色组 | 建议实例 | 核心职责 | 状态权限 | 输出 |
 | :--- | :--- | :--- | :--- | :--- |
-| **调度中心 (Main)** | `main` | 分流/路由/DAG 调度，`MAIN_ONLY` 模式下可直接处理微小可逆任务 | `main_session` | 路由指令、状态更新 |
-| **研究池 (Researcher)** | `res_1~3` | 技术调研、架构设计、编写执行手册 | `res_1~3_id` | **执行计划 (Research Plan)** |
-| **执行池 (Executor)** | `exe_1~3` | 代码/指令编写、环境部署、具体功能实现 | `exe_1~3_id` | **产出物 (Artifacts)** |
-| **调试池 (Debugger)** | `dbg_1~3` | 逻辑/边界/性能专项校验、反馈错误日志 | `dbg_1~3_id` | **质检报告 (Debug Feed)** |
-| **仲裁员 (Judge)** | `judge_1` | 汇总多份质检报告、执行完成门控、输出最终裁决 | `judge_id` | **评估结论 (Evaluation)** |
+| **调度中心 (Main)** | `main` | 分流、评分、两层 DAG、Assignment、回执验证、串行状态提交、恢复、归档 | 唯一可写 `state.md` | 状态、调度与验收记录 |
+| **研究池 (Researcher)** | `res_1~3` | 需求/边界、方案/接口、风险/验收研究 | 只读 | 研究结果、`State_Patch` |
+| **执行池 (Executor)** | `exe_1~3` | 隔离实现、工具执行、测试与产物生成 | 只读状态；仅改授权产物 | 产物、证据、`State_Patch` |
+| **调试池 (Debugger)** | `dbg_1~3` | 逻辑、边界、性能、安全与回归检查 | 只读 | 质检回执、`State_Patch` |
+| **集成角色 (Integration)** | 动态节点 | 独占集成产物、冲突仲裁、合并 | 只读状态；独占集成范围 | 集成产物与回执 |
+| **仲裁员 (Judge)** | 默认 1 个 | 独立完成门控与最终裁决 | 只读 | `PASS/REJECTED` 回执 |
+
+**职能池并发上限：** Researcher 最多 3；Executor 最多 3（`openclaw_native`、`claude_code`、`codex` 合计）；Debugger 最多 3；Integration 最多 3，但同一集成产物仅 1 个有效节点；Judge 最多 3 个实例，同一任务最终裁决默认仅激活 1 个。实际并发为 READY 节点数、可用 Agent 数、池上限三者最小值；不另设模型级并发限制。
 
 ---
 
@@ -48,126 +54,266 @@
 
 ### 1. 任务初始化与分流 (Initialization & Triage)
 
-**新任务判定**：Main Agent 通过 `New_Task_Flag = TRUE` 或用户新请求判定新任务；**不得** 仅因 `Status = COMPLETED` 单独推断新任务。
+Main 由 `New_Task_Flag = TRUE` 或用户新请求识别新任务，不得仅因 `Status = COMPLETED` 推断新任务。Main 确定 `<task_folder>`；FULL 任务在评分与拆分前读取 `<task_folder>/MAM_state.md`（若存在），但 MAM 不恢复运行节点、Assignment 或 Session。
 
-**环境重置**：分配唯一 `Task_ID`，重置生命周期至 `INIT`，根据模版重新生成 `state.md`。
+**硬覆盖规则优先于评分：**
 
-**确定性分流（先应用 Override，再按加法评分）：**
+| 条件 | 结果 |
+|---|---|
+| 用户明确要求 Matrix、多 Agent、并行或独立 Judge | `FULL` |
+| 破坏性、不可逆、外部发布/消息/事务、凭证、隐私或权限边界变更 | 先 `WAITING_USER`，确认后再评分 |
+| 纯闲聊或无需文件、工具、独立验证的简单只读查询 | `MAIN_ONLY` |
+| 用户明确指定执行方式或禁止拆分 | 遵循用户要求，保留必要安全门禁 |
 
-```
-Override 检查（优先于分数）:
-  IF 用户明确要求 Matrix 或独立 QA  → mode = FULL
-  IF 需要安全确认（破坏性/不可逆/外部/隐私/凭证/权限变更）→ status = WAITING_USER
-  IF 纯对话 / 只读 / 无工作区变更   → mode = MAIN_ONLY
-  ELSE → 计算加法评分:
-    score += 3  if 破坏性/外部/隐私敏感/安全影响
-    score += 2  if 多文件/跨组件/架构/配置迁移
-    score += 2  if 实现/工具执行
-    score += 2  if 需要独立 QA/安全验证
-    score += 1  if 研究/模糊需求
-    score += 1  if 长时运行/恢复敏感
-    mode = MAIN_ONLY  if score 0–2
-    mode = MINIMAL    if score 3–5
-    mode = FULL       if score ≥ 6
-```
+**多维加法评分（每个实际加分项及理由均写入状态，不得只写总分）：**
 
-**模式行为边界：**
-- `MAIN_ONLY`：Main 可直接执行，无需调度专家 Agent。
-- `MINIMAL`：Main 编排一个真实专家 Agent + 按需验证（Judge 仅在需要独立仲裁时才必须）。
-- `FULL`：完整 Researcher → Executor → Debugger → Judge DAG，Main 仅路由与验证，严禁代替任何专家完成其专属工作。
+| 维度 | 分值 |
+|---|---:|
+| 安全与失败影响 | `+3` |
+| 多文件或跨组件 | `+2` |
+| 实现与工具执行 | `+2` |
+| 独立质量验证 | `+2` |
+| 独立交付物与并行价值 | `+2` |
+| 集成复杂度 | `+2` |
+| 研究与需求不确定性 | `+1` |
+| 长时运行与恢复敏感 | `+1` |
 
-在 `state.md` `[0] 系统信号` 中记录 `Matrix_Score`、`Matrix_Mode`、`Decision_Reasons`；在 `[1] 调度计划` 中写入 DAG 拓扑和完整节点账本。
+阈值：`0–2 → MAIN_ONLY`；`3–5 → MINIMAL`；`≥6 → FULL`。MAIN_ONLY 由 Main 直接处理并做风险匹配的最小验证；MINIMAL 至少分配 1 个子 Agent，按风险决定 Debugger/Judge，不强制两层 DAG但必须记录 Assignment 与验收；FULL 强制拆分、两层 DAG、Debugger 与 Judge，Main 不得在自身 Session 代做完整专家工作。
+
+FULL 的 Researcher 数量：`6–7` 分为 1 个，`8–10` 分为 2 个并行，`≥11` 分为 3 个并行。跨专业、争议方案、高风险多路径或用户要求可上调但不超过 3；低于建议数量须记录原因。
+
+每个子任务至少包含：`Subtask_ID`、名称、目标、输入与依赖、输出路径或章节、负责角色与 Agent ID、允许修改范围、禁止修改范围、验收标准、状态、重试次数、开始/完成时间、Session Key/Run ID、结果摘要与证据。
 
 ### 2. 模型发现与子 Agent 分配 (Model Discovery & Assignment)
 
-* **可用模型拉取**：Main Agent 在创建或刷新 Matrix 子 Agent 前，必须先读取用户当前 API / OpenClaw 配置可调用的模型列表。
-* **模型画像建立**：对每个模型记录或推断其价格、上下文长度、输出能力、推理能力、代码能力、速度、稳定性、工具调用适配度等维度。
-* **角色需求匹配**：根据子 Agent 任务类型分配模型。例如研究员偏向长上下文与推理，执行员偏向代码能力与稳定性，调试员偏向逻辑/边界/性能检查能力，Judge 偏向综合判断能力。
-* **成本约束**：高价模型只分配给高杠杆角色或高难任务，避免所有子 Agent 无差别使用昂贵模型。若模型价格未知，应记录风险并采用保守分配。
-* **写入配置**：分配结果应写入子 Agent 配置，并在 Matrix 元数据中记录分配依据，便于用户审计和后续调整。
+Main 以“用户政策优先、证据优先、按 Assignment 动态匹配”为核心，先发现可用模型，再做画像与分配；不得把目录里出现的模型、展示页或历史配置误当作运行可用证明。
+
+**发现来源仅限以下四类，并分别记录证据与 provenance：**
+1. 当前 OpenClaw 配置与其允许清单（allowlist）
+2. 用户显式提供的 API / 模型清单
+3. 已登记的目录/元数据发现结果
+4. 受控最小探测或真实运行验收结果
+
+**allowlist 语义：**
+- 若存在 allowlist，它是可分配边界；不在 allowlist 内的模型不得分配给任何 Assignment。
+- 目录或 catalog 只能补充元数据，不得绕过 allowlist。
+- 仅“看得见”不等于“能执行”；目录列出、auth 可见、ready-marker 存在都不构成 runtime proof。
+- 未知元数据保持 `unknown`，不得猜测、补全或编造。
+
+**可用性证据分层：**
+- `configured_allowed`：已配置且在 allowlist 内
+- `ready_marker`：存在可读的 auth/local/plugin 就绪标记，但仍不代表可执行
+- `catalog_listed`：目录中列出，仅表示元数据可见
+- `targeted_probe`：针对性最小探测成功，证明特定能力或接口可用；探测会消耗 token / rate limit，必须按需、定向、最小化
+- `runtime_validated`：真实子 Agent 运行验收成功，证明该模型/执行路径在当前 Assignment 上可用
+
+这些是并列证据维度，不是强制线性 auth 链；不存在“一步必须自动推导下一步”的全局链式假设。Main 只能在证据足够时将其提升为可分配候选。
+
+**画像维度必须完整且可回读：**
+- 价格：已知单价、未知单价、预算敏感度
+- 上下文：native context、effective context、输出长度、结构化稳定性
+- 能力：reasoning、coding、debugging、writing、tool use、multimodal、schema adherence、summarization、retrieval、planning
+- 运行：速度、延迟、稳定性、失败率、并发占用、限流/配额、重试代价
+- 合规：隐私敏感度、数据驻留/本地优先、禁用列表、用户固定模型/固定角色偏好
+- 证据：来源、时间、验证方式、适用范围、失效条件
+
+**角色需求不是静态绑定，而是按 Assignment / Subtask 计算：**
+- Main：编排、验证、写入、恢复、归档、预算控制与最终门禁
+- Researcher：需求澄清、边界识别、方案比较、风险与验收拆解
+- Executor：实现、工具执行、修复、产物生成与局部回归
+- Debugger：按领域拆分的专项质检；包括 schema/receipt、portability/security、integration/regression、performance/stability、model-allocation-audit 等
+- Integration：多产物合并、冲突仲裁、回归验证、冻结接口后的集成落地
+- Judge：独立裁决、完成门控、是否可归档
+
+Main 为每个子任务创建唯一 Assignment，并允许同一角色在不同 Assignment 上动态升降级；高能力/高价模型只用于高杠杆或高难节点，轻量模型优先覆盖研究、格式校验、回归与低风险执行。
+
+**分配原则：**
+1. 用户政策先于优化：固定模型、禁用列表、allowlist、预算、隐私/数据约束、并发与回退策略优先。
+2. 先过硬约束，再做评分；任何硬约束不满足直接淘汰。
+3. 评分维度按 Assignment 组合：能力覆盖、可靠性、上下文匹配、工具适配、延迟、预计输入+输出 token、预计总成本。
+4. 估算 token 时同时考虑该 Assignment 的输入规模、生成规模、回合数、重试预算和 probe 成本。
+5. 动态 escalation / de-escalation：当任务难度、上下文消耗、失败证据或用户约束变化时，Main 可在未开始节点上升级或降级模型；已 `PASS` 结果不回改。
+6. 发生能力不足、限流、工具失败、证据不足、成本超标或策略冲突时，按预设 fallback / retry / reduce-scope / switch-model / WAITING_USER 处理。
+
+Main 为每个子任务创建唯一 Assignment：
+
+```text
+Assignment_ID = Task_ID / Subtask_ID / Attempt
+```
+
+同一 `Subtask_ID` 同时只能有一个有效 Assignment；首次 `Attempt = 1`，仅重试时递增，派发后不可更改；Agent ID、Session Key、Run ID、角色、执行器类型和目标范围必须绑定 Assignment。READY 且无有效 Assignment 才可派发；RUNNING/PASS 禁止重复派发；FAIL/BLOCKED 重试必须 `Attempt + 1`。
+
+**推荐工作流（可审计、可重算）：**
+1. 读取用户政策、allowlist、预算、固定模型/禁用列表与保密边界。
+2. 汇总可用来源，形成标准化 user-available-model set。
+3. 合并 provenance，标记每条元数据的来源、时间与证据等级。
+4. 对每个待派发 Assignment 构建 demand vector：目标角色、任务类型、上下文需求、工具需求、结构化输出要求、容错需求、隐私等级、预算上限、时延上限、probe 许可。
+5. 对候选模型先做 hard-filter，再按 capability/reliability/context/tool/latency/estimated tokens/estimated total cost scoring。
+6. 计算并发占用与预算；高价模型在 premium concurrency 下优先保留给高难/高杠杆节点。
+7. 对缺失或不确定信息保持 `unknown`，必要时仅执行 targeted probe，不做全量盲测。
+8. 生成分配记录、警告、回退路径与运行验收要求。
+
+**伪代码：**
+
+```pseudo
+models = discover_from_config_and_user_allowlist()
+models = normalize_and_tag_provenance(models)
+models = filter_by_allowlist_and_user_policy(models)
+for assignment in ready_assignments:
+    demand = build_demand_vector(assignment)
+    candidates = hard_filter(models, demand)
+    if candidates.empty:
+        fallback = choose_fallback_or_wait_user(assignment)
+        record_allocation(assignment, fallback, reason="no_hard_match")
+        continue
+    scored = score_candidates(
+        candidates,
+        capability=demand.capability,
+        reliability=demand.reliability,
+        context=demand.context,
+        tool=demand.tool,
+        latency=demand.latency,
+        token_cost=estimate_tokens(assignment),
+        total_cost=estimate_total_cost(assignment)
+    )
+    selected = choose_best(scored, budget, premium_concurrency, policy)
+    if selected.needs_probe and probe_budget_available(selected):
+        selected = run_targeted_probe(selected, demand)
+    if selected.runtime_validated or selected.ready_to_assign:
+        bind_assignment(assignment, selected)
+    else:
+        fallback = choose_fallback_or_wait_user(assignment)
+        bind_assignment(assignment, fallback)
+```
+
+**配置与审计输出必须可支持：**
+- `model_allocation`：每个 Assignment 的 selected model、理由、证据等级、预算消耗、回退路径
+- `allocation_audit`：输入政策、allowlist、禁用项、候选集合、评分摘要、probe 记录、runtime 验收结果、失败原因、rematch 记录
+- `model_profile`：归一化画像（未知项显式 `unknown`）
+- `rematch_log`：模型升级/降级/回退/重新匹配的原因与时间
+
+**配置与验收要求：**
+- 仅使用 OpenClaw 支持的配置/Schema 字段，不引入未支持的顶层字段或私有扩展。
+- 配置后必须做 schema 校验、readback 校验与真实 runtime acceptance。
+- runtime acceptance 不能仅靠 catalog、ready-marker 或静态声明；必须以真实非 Main 子 Agent 的回执与写入证据为准。
+- targeted probe 只能作为局部能力证据，不能被冒充为全面运行证明。
+- probes 与 runtime 验收必须记录 token、rate limit、失败码与适用范围，避免无意义消耗。
 
 ### 3. 路由规划与显式调度 (Routing & Explicit Dispatch)
 
-* **组合决策**：Main Agent 在 `state.md` 中写入 `[Dispatch Plan]`（例如：`res_1 -> exe_1 -> [dbg_1, dbg_2]`）和完整节点账本。
-* **依赖门控**：Main 仅调度 `READY` 节点（所有前置依赖为 `PASS`）；并行节点需所有声明的前置依赖均已 `PASS`。
-* **显式调度**：通过 OpenClaw 已注册的显式 Agent ID 真实调用子 Agent，创建独立 Session。严禁 Main 在自身 Session 中模拟 Researcher、Executor、Debugger 或 Judge 的输出。
-* **调度证据**：每个被激活角色在 `state.md` 中记录 Agent ID、Session ID 或 Run ID、开始/完成时间、负责章节与结果摘要。
-* **事件驱动续行**：Main 使用推送式完成事件续行，不得忙轮询。
+FULL 使用两层 DAG：
+
+```text
+Research DAG:  RES-1 || RES-2 || RES-3
+                         ↓ Main 验证每份回执
+Delivery DAG:  EXE-* → DBG-* → INTEGRATION(按需) → REGRESSION(按需) → JUDGE
+```
+
+Researcher 可按需求与边界、技术方案与接口、风险与验收分工。Main 每收到一个有效研究回执就串行写入 Research DAG，并判断是否可通过 `DAG_Update` 提前解锁 Delivery 节点，无需等待同批全部完成。节点派发必须同时满足：用户策略允许、Assignment 已绑定、能力画像通过 hard-filter、预算与并发未超限、证据等级满足该节点最低要求。
+
+Delivery DAG 至少明确实现依赖、Executor 产物路径、`executor_type`、对应 Debugger、并行/串行关系、Integration 是否需要、集成回归范围和 Judge 条件。Main 仅调度依赖满足的 READY 节点，使用真实注册 Agent ID 和独立 Session；采用推送式完成事件，不忙轮询。
+
+`DAG_Update` 由 Main 增量维护，不整体重写，最小结构如下：
+
+```json
+{
+  "schema_version": "1.0",
+  "update_id": "<task-id>/DAG-UPDATE/<sequence>",
+  "task_id": "<task-id>",
+  "triggered_by": {"subtask_id": "<research-node>", "assignment_id": "<assignment-id>", "result_digest": "<digest>"},
+  "created_at": "<timestamp>",
+  "add_nodes": [], "update_nodes": [], "add_edges": [], "remove_edges": [], "cancel_nodes": [],
+  "notes": "<reason>"
+}
+```
+
+节点 ID 创建后不可重命名或复用；重试只增加 Attempt。允许增加节点/边、更新非身份字段、移除未开始节点间的边、取消未开始或已终止节点；禁止删除完成记录、修改 Node ID、将 RUNNING/PASS 改回 READY、移除完成证据、形成环或改变与运行 Assignment 冲突的产物范围。边类型为 `REQUIRES_PASS`、`REQUIRES_COMPLETION`、`INFORMS`。Main 应检查 ID/产物范围冲突、依赖环和运行状态后应用并重算 READY 集。
+
+`Update_ID` 幂等：同 ID 同内容忽略；同 ID 不同内容为 `DAG_UPDATE_CONFLICT`；不同 ID 定义同 Node ID，完全相同则忽略，否则为 `NODE_DEFINITION_CONFLICT`。
 
 ### 4. 链式执行与自愈循环 (Execution & Self-Healing Loop)
 
-* **任务流转**：Researcher 产出计划 → Executor 产出结果 → Debugger 提交报告。
-* **总线同步**：每个子 Agent 在开始前必须读取同一绝对路径下的 `state.md` 并核对 `Task_ID`；完成后仅更新自身授权章节。Main 根据写回结果决定下一个 DAG 节点。
-* **回执验证**：收到回执后，Main 重新读取 `state.md`，依次核验：`Task_ID` 一致、预期角色/Session/Run 一致、仅授权章节被写入、结果状态、新鲜写回证据；全部通过后解锁下游节点。
-* **Session 隔离**：每次角色调用必须产生可审计的非 Main Session / Run。不同角色不得共享 Main 的会话上下文，也不得仅依赖聊天转述代替共享黑板。
-* **自愈机制**：若 Debugger 返回 `FAIL`，Main 指派对应 Executor 参考错误日志（含根因签名、严重等级、是否瞬时）进行修复，保留已通过节点。
-* **熔断处理**：同一阶段/根因签名连续失败 **3 次**，触发熔断（`CIRCUIT_OPEN`）：停止重调度；若安全则退回 Researcher 要求实质性修订方案，否则进入 `WAITING_USER`；**仅在** 有可验证进展或方案实质变更后才重置签名计数器。
+所有 Worker 开始前只读同一 `state.md`，核对 Task/Subtask/Assignment、依赖和授权范围；不得直接写、重置或归档状态。完成后返回统一 JSON 回执，并附带 `State_Patch`（仅为 Main 应写入目标章节的完整替换 Markdown，不是 Worker 写操作）：
+
+```json
+{
+  "schema_version": "1.0",
+  "event_type": "WORKER_COMPLETED",
+  "task_id": "<task-id>",
+  "subtask_id": "<subtask-id>",
+  "assignment_id": "<task-id>/<subtask-id>/<attempt>",
+  "attempt": 1,
+  "role": "executor",
+  "agent_id": "<agent-id>",
+  "executor_type": "openclaw_native",
+  "session_key": "<session-key>",
+  "run_id": "<run-id>",
+  "status": "PASS",
+  "target_section": "<authorized-section>",
+  "completed_at": "<timestamp>",
+  "result_summary": "<summary>",
+  "artifacts": [{"path": "<artifact-path>", "type": "source", "sha256": "<optional-sha256>"}],
+  "evidence": [{"type": "test", "summary": "<test-summary>", "path": "<evidence-path>"}],
+  "errors": [],
+  "next": ["<next-node>"],
+  "State_Patch": "<complete replacement markdown for target_section>",
+  "result_digest": "<sha256-of-canonical-result-payload>"
+}
+```
+
+必填字段为以上全部字段，包括 `State_Patch` 与 `result_digest`；数组为空时必须为 `[]`。`status` 仅允许 `PASS / FAIL / BLOCKED / CANCELLED`；`executor_type` 仅允许 `openclaw_native / claude_code / codex`。Result Digest 依固定顺序覆盖 Assignment ID、Status、Result Summary、Artifacts、Evidence、Errors、Next 的标准 JSON，Main 必须重算，不信任 Worker 值。`State_Patch` 单独接受范围和内容校验。
+
+Main 拒绝 Task/Subtask/当前 Assignment 不匹配、Agent/Session/Run 不匹配、字段缺失、枚举无效、Digest 不符、产物不存在或 Target/State_Patch 越权的回执。验证流程为：解析 → 身份/Assignment 核对 → 重算 Digest → 重复/冲突/迟到判断 → 检查状态/证据/产物/范围 → 串行写入 `State_Patch` → 记录接受标志与 Digest → 更新节点 → 重算 READY → 派发。若验证通过但能力证据不足以支持后续节点，Main 应 rematch 或降级，而不是默认继续使用同一模型。
+
+每个 Assignment 记录 `Result_Accepted` 与 `Result_Digest`：首次有效完成才接受；同 Assignment 已接受且 Digest 相同，记录 `Duplicate_Event_Ignored`，不写入、不解锁；Digest 不同标记 `RESULT_CONFLICT`，拒绝覆盖并保留冲突证据；旧 Attempt 迟到标记 `LATE_RESULT`，默认不写入、不改变节点，仅保留诊断摘要。
+
+**Executor 隔离与集成：** 每个 Executor 使用 `<task_folder>/artifacts/<subtask-id>/` 或独立工作树/分支/patch；并行 Executor 不得直接改同一工作树。完成回执后停止修改、退出运行并释放工具会话。多产物合并时建立 Integration 节点；全部相关 Executor 完成并退出后，集成者才取得 `<task_folder>/artifacts/INTEGRATION/` 或目标集成范围的独占修改权。前序 Executor 不得再修改，后续修复创建新 Assignment/节点。Integration 后运行跨模块接口、构建和整体行为回归。
+
+实现冲突先受用户要求、安全边界和冻结接口约束；不合规方案直接淘汰。其余按 Main 在任务开始时记录的动态 `Model_Capability_Order`（Tier 1/2/3）仲裁：高能力等级优先，低等级可补充但不可覆盖；同等级交 Judge。Integration 记录双方、模型等级、采用方案和理由。
+
+**局部重试与两级熔断：** 计数键为 `Task_ID + Subtask_ID + Stage + Root_Cause_Signature`。Executor/Debugger/Integration/Regression 失败仅暂停受影响链路，无依赖链继续，依赖失败节点者保持 `BLOCKED_BY_DEPENDENCY`。第一阶段严格为 `Attempt 1（初始）→ Attempt 2（重试1）→ Attempt 3（重试2）→ Attempt 4（重试3）`；Attempt 4 同根因仍失败则执行链熔断并退回 Researcher。第二阶段 Researcher 必须基于证据给出实质不同方案，Main 增量更新 Delivery DAG，新方案可重置对应链路重试；Researcher 最多 3 次修订。第 3 次修订后仍失败，或连续 3 次无可执行方案，进入 `WAITING_USER`，报告子任务/阶段、3 次局部重试、3 次研究修订、根因证据、选项与待决定事项。根因签名仅在机制、位置或解决路径实质变化时改变；PASS 结束当前计数但保留历史。
 
 ### 5. 恢复与重建 (Recovery & Reconciliation)
 
-网关重启、Session 丢失、超时或 Main 中断时，进入 `RECOVERING` 状态：
-
-* 仅从 `state.md` 重建状态，不得依赖聊天记忆。
-* 调度前先核对活跃运行以避免重复调度。
-* 接受有效的迟到回执；将孤立运行标记后在同一 `Task_ID` 下重试。
-* **严禁** 仅凭聊天记忆宣告完成。
+中断时进入 `RECOVERING`，以 Main 最后成功写入的 `state.md` 为准，不依赖聊天记忆：已写入结果不重复执行；已完成未写入结果从绑定 Session 重新取得；RUNNING Worker 先核对状态再等待、恢复或重试；孤立运行标记后处理；重复回执按 `Assignment_ID + Result_Accepted + Result_Digest`，DAG 更新按 `Update_ID` 幂等处理。有效迟到结果只作诊断，除非 Main 明确重新验证并建立新的有效 Assignment。Main 物理写入失败时不得声称状态已提交或解锁下游；具体恢复机制由部署实现规定，本架构不展开。
 
 ### 6. 仲裁与完成门控 (Review & Completion Gate)
 
-* **多维评估**：Judge Agent 独立读取 `state.md` 中所有必要节点的证据，对比多个 Debugger 的反馈。
-* **完成门控谓词**（全部为真方可 `PASS`）：
-  1. 交付物/验收标准已满足
-  2. 所有必要检查/测试通过
-  3. 账本中每个必要节点均为 `PASS`
-  4. 无未解决阻塞或熔断（`CIRCUIT_OPEN`）
-  5. 所有回执 Task_ID / Session ID / 写回证据通过验证
-  6. 结构约束成立（无新增/删除/移动/重命名文件）
-  7. 安全约束成立（无未授权的权限/凭证/外部操作）
-* **裁决输出**：`PASS`（原 `APPROVED` 统一规范为 `PASS`）或 `REJECTED`，写入 `## [4] 评估结论 -> ### judge`。
-* **一票否决**：`CRITICAL` 级别问题直接判为 `REJECTED`。
+Debugger 仅在对应 Executor `PASS` 后启动；失败只重开受影响链路。Judge 仅在所有必要 Executor 与 Debugger 通过、Integration/Regression 通过或明确不需要、且无未解决失败/阻塞/冲突/熔断时启动。
+
+Judge 独立核验：交付与验收标准、必要测试、节点证据、Assignment/Session/Run/Digest、文件与安全边界、集成与回归、未解决风险。任一 CRITICAL 问题一票否决。裁决仅为 `PASS` 或 `REJECTED`；只有全部门控为真才能 `PASS`。
 
 ### 7. 自动归档 (Automatic Archiving)
 
-Judge `PASS` 后，Main 立即执行：
+Judge `PASS` 后，Main 按以下顺序执行，且每个 Task 最多更新一次 MAM：
 
-1. 以 `Task_ID` 为名执行内部原子性幂等归档，将当前 `state.md` 备份至 `workspace/history/` 目录。
-2. 记录归档路径和校验和（或等效证据）至 `state.md` `[5] 归档` 章节。
-3. 重置 `state.md` 为初始模版，`Status` 设为 `COMPLETED`，`New_Task_Flag` 设为 `FALSE`。
-4. 向用户报告完成——**无需**例行用户确认。
+1. 检查 `<task_folder>/MAM_state.md` 的 `Last_Completed_Task_ID`；相同则跳过写入。
+2. 读取旧 MAM（若存在），从最终状态、产物和验收证据提炼长期有效内容，去重并移除过时内容。
+3. 写入并回读验证 MAM；仅回读成功后设置 `MAM_Update_Status = PASS`。
+4. 原子、幂等归档当前 `state.md` 至 `<workspace>/history/<task-id>/`，记录路径与校验和。
+5. 仅在归档成功且 MAM 门禁通过后重置 `state.md`，再向用户报告。
 
-**以下情况仍必须先获得用户同意后才可归档：**
-- 破坏性/不可逆操作
-- 外部发布/消息/事务
-- 凭证或隐私敏感访问
-- 权限/安全边界变更
-- 任何用户明确设置的审批门
+MAM 写入或回读失败会阻止清空/重置状态；Main 先修复，无法修复则进入 `WAITING_USER`，说明交付已完成但长期记忆保存失败。破坏性、不可逆、外部、隐私/凭证或权限边界操作仍遵循用户审批门。
 
 ### 8. 配置后运行时验收 (Post-Configuration Runtime Acceptance)
 
-* **目的**：防止系统只创建角色名单、提示词和目录，却没有真正启用运行时调度。
-* **最小验收拓扑**：配置完成后执行 `main -> res_1 -> judge -> main`，也可使用与当前部署规模等价的最小链路。
-* **验收步骤**：
-    * Main 归档旧状态，在 `state.md` 中创建唯一 `Task_ID` 和验收专用 `[Dispatch Plan]`。
-    * Main 真实调用 `res_1`，要求其在独立 Session 中读取共享黑板，并仅更新 `res_1` 对应章节。
-    * Main 核对共享黑板的绝对路径、`Task_ID`、修改时间与角色结果。
-    * Main 真实调用 Judge，由 Judge 独立读取证据并在 `[4] 评估结论` 中写入 `PASS / FAIL`。
-    * Main 记录最终状态、真实 Session / Run 标识和归档路径。
-* **通过条件**：以下证据必须同时存在：
-    1. `state.md` 具有当前唯一 `Task_ID` 和最近修改时间。
-    2. 至少一个非 Main 的已配置 Agent 存在真实 Session / Run。
-    3. 子 Agent 回执包含与共享黑板相同的 `Task_ID`。
-    4. 子 Agent 已将结果写入同一份 `state.md` 的授权章节。
-   5. Main 或 Judge 已记录验收结论和对应证据。
-* **失败处理**：若任一条件缺失，`Status` 必须标记为 `RUNTIME_NOT_READY` 或 `FAIL`，不得宣称 Matrix 已启用。Main 应检查子 Agent 调用权限、Agent ID 映射、Session 可见性、Workspace 路径、文件权限和 Prompt 注入后重新验收。
+配置后必须运行等价于 `main → res_1 → judge → main` 的最小真实链路：Main 创建占位化测试 Task/Assignment，真实调用独立 Session 的 Worker；Worker 只读总线并返回完整回执与 `State_Patch`；Main 校验身份/Digest/范围后写入；Judge 独立读取证据并返回裁决；Main 写入结论。必须同时证明：唯一 Task ID、非 Main Session/Run、Assignment 绑定、Worker 无状态写权限、Main 接受并物理写入、Judge 证据和归档路径。还应覆盖三个 Researcher 乱序完成、单份研究提前解锁、并行隔离、Integration 独占、局部失败不阻塞、重复/冲突/迟到事件、恢复与 MAM 回读门禁。
+
+任一证据缺失时标记 `RUNTIME_NOT_READY` 或 `FAIL`，不得宣称 Matrix 已启用；修正 Agent 注册/allowlist、Session 可见性、工作区、权限、Prompt 或配置后重新验收。验收结果必须能回读到配置 schema、allowlist、模型画像、Assignment 绑定、runtime proof 与失败原因；若 targeted probe 成功但 runtime acceptance 失败，必须降级为“局部可用”而非“全面可用”。
 
 ---
 
 ## 五、 OpenClaw 实施 (Implementation)
 
 ### 1. 目录结构
-```bash
-mkdir -p ~/.openclaw/workspace/history
-touch ~/.openclaw/workspace/state.md
+
+```text
+<workspace>/state.md
+<workspace>/history/<task-id>/
+<task_folder>/MAM_state.md
+<task_folder>/artifacts/<subtask-id>/
+<task_folder>/artifacts/INTEGRATION/
+<project-root>/prompts/
 ```
 
 ### 2. `state.md` 核心模版
@@ -176,215 +322,397 @@ touch ~/.openclaw/workspace/state.md
 # 📂 OpenClaw 任务总线 (State Center)
 
 ## 📊 [0] 系统信号 (Signals)
-- **Task_ID**: `OC-UUID-TIMESTAMP`
+- **Task_ID**: `<task-id>`
 - **Status**: `INIT`
 - **New_Task_Flag**: `TRUE`
-- **Matrix_Score**: `<0–10+>`
+- **Matrix_Score**: `<score>`
 - **Matrix_Mode**: `MAIN_ONLY | MINIMAL | FULL`
-- **Decision_Reasons**: `<评分依据和 Override 说明>`
+- **Decision_Reasons**: `<each scoring dimension and override>`
 - **Lifecycle_State**: `INIT`
+- **Model_Capability_Order**: `<dynamic tiers>`
+- **Model_Discovery_Provenance**: `<sources-and-evidence>`
+- **MAM_Update_Status**: `PENDING`
 
 ## 📈 [1] 调度计划 (Dispatch Plan)
-- **拓扑**: `res_n -> exe_n -> [dbg_n]`
-- **当前激活**: `None`
-
-### 节点账本 (Node Ledger)
-#### res_1
-- **Status**: `BLOCKED_BY_DEPENDENCY | READY | RUNNING | PASS | FAIL | RETRYING | CIRCUIT_OPEN`
+### Research DAG
+#### RES-1
+- **Subtask_ID**: `RES-1`
+- **Assignment_ID**: `<task-id>/RES-1/1`
+- **Attempt**: `1`
+- **Status**: `READY`
 - **Depends_On**: `none`
-- **Assigned_Section**: `## [2] 黑板 -> ### 执行计划`
-- **Agent_ID**: `res_1`
+- **Agent_ID**: `<agent-id>`
 - **Session_Key**: `PENDING`
 - **Run_ID**: `PENDING`
-- **Retry_Count**: `0`
-- **Started_At**: `PENDING`
-- **Completed_At**: `PENDING`
-- **Receipt**: `PENDING`
-- **Writeback_Evidence**: `PENDING`
+- **Target_Section**: `[2]/RES-1`
+- **Allowed_Scope**: `<allowed>`
+- **Forbidden_Scope**: `<forbidden>`
+- **Acceptance**: `<criteria>`
+- **Result_Accepted**: `FALSE`
+- **Result_Digest**: `PENDING`
+
+### Delivery DAG
+#### EXE-A
+- **Status**: `BLOCKED_BY_DEPENDENCY`
+#### DBG-A
+- **Status**: `BLOCKED_BY_DEPENDENCY`
+#### INTEGRATION
+- **Status**: `NOT_REQUIRED | BLOCKED_BY_DEPENDENCY`
+#### REGRESSION
+- **Status**: `NOT_REQUIRED | BLOCKED_BY_DEPENDENCY`
+#### JUDGE
+- **Status**: `BLOCKED_BY_DEPENDENCY`
+
+### Applied DAG Updates
+- `<update-id>`
 
 ## 📖 [2] 共享工作区 / 黑板 (Blackboard)
-### 📝 执行计划 (Research Plan)
+### RES-1
 - **Status**: `PENDING`
-
-### 💻 产出结果 (Artifacts)
-- **Status**: `PENDING`
+- **Result**: `PENDING`
+- **Evidence**: `PENDING`
 
 ## 🧪 [3] 质量中心 (Quality Center)
-### dbg_1
 - **Status**: `PENDING`
 
 ## ⚖️ [4] 评估结论 (Evaluation)
-### judge
 - **Status**: `PENDING`
 
 ## 📦 [5] 归档 (Archive)
+- **MAM_Update_Status**: `PENDING`
 - **Archive_Path**: `PENDING`
 - **Archive_Checksum**: `PENDING`
-- **Archived_At**: `PENDING`
 ```
 
 ###3. 动态模型分配协议 (Dynamic Model Allocation Protocol)
 
-在用户根据本项目文件配置 Matrix 时，系统必须先完成模型发现，再创建或更新子 Agent。
+本节把“动态发现 → 画像 → 约束过滤 → 打分 → 绑定 → 验证 → 复配”拆成可落地步骤；它与第二章第 2 节的控制原则一致，但此处给出实现/配置/审计所需的细化协议。
 
-#### 3.1输入：用户可用模型列表
-Main Agent 应从以下来源读取模型列表：
+#### 3.1 输入、发现顺序与 allowlist 边界
 
-* OpenClaw 当前模型配置或模型目录。
-* 用户 API Provider 返回的可用模型。
-* 用户手动提供的模型清单。
-* 项目提供的 `openclaw.json.example` 或其他配置模板中的模型声明。
+Main 先读取用户策略，再读取 OpenClaw 当前配置/allowlist，最后汇总可发现来源；发现顺序只影响证据优先级，不表示自动继承运行可用性。
 
-模型列表不应在架构文档中写死，因为不同用户的 API 权限、模型供应商、价格和上下文窗口都可能不同。
+1. **用户策略**：固定模型、禁用模型、预算上限、隐私/驻留要求、角色偏好、允许回退路径。
+2. **OpenClaw 配置与 allowlist**：若存在 allowlist，它就是可分配边界；不在 allowlist 内的模型不得分配给任何 Assignment。
+3. **用户显式提供的 API / 模型清单**：只作为候选输入，不自动等于可执行。
+4. **目录/元数据发现**：只能丰富候选元数据，不能突破 allowlist，也不能替代运行验收。
+5. **受控最小探测 / 真实运行验收**：仅在证据不足时执行，且结果只证明当前能力或当前 Assignment 下可用，不能推导所有场景都可用。
 
-#### 3.2 模型画像维度
-每个模型应尽量建立如下画像：
+发现时必须保留 provenance：来源、时间、查询方式、证据等级、适用范围、失效条件。若 allowlist 为空，则可用集合由用户策略、配置约束与显式提供清单共同决定；若 allowlist 存在，则它优先于目录、探测和展示页。
 
-| 维度 | 说明 |
-| :--- | :--- |
-| **调用价格** | 输入/输出 token 单价、是否高价、是否未知价格。 |
-| **上下文长度** | 能处理的最大上下文窗口，适合长文档/大代码库任务。 |
-| **能力偏向** | 推理、代码、写作、调试、多模态、工具调用等偏向。 |
-| **输出能力** | 最大输出长度、结构化输出稳定性。 |
-| **速度与稳定性** | 延迟、失败率、限流风险。 |
-| **用户偏好** | 用户指定的默认模型、禁用模型、预算限制。 |
+#### 3.2 可用性证据模型
 
-若价格、能力或上下文数据缺失，必须标记为 `unknown`，不得伪造数据。
+可用性不是单线认证链，而是并列证据维度；Main 不能把“目录看见”“有 ready-marker”误当成“已可运行”。推荐证据维度如下：
 
-#### 3.3 子 Agent 任务类型需求
-模型分配应根据角色任务类型进行匹配：
+- `configured_allowed`：已配置且在 allowlist 内
+- `ready_marker`：存在可读的 auth/local/plugin 就绪标记
+- `catalog_listed`：目录或 catalog 可见，仅说明元数据存在
+- `targeted_probe`：针对性最小探测成功，证明某项能力/接口可用
+- `runtime_validated`：真实非 Main 子 Agent 的运行验收成功
 
-| 子 Agent 类型 | 优先模型特征 | 成本策略 |
-| :--- | :--- | :--- |
-| `Main` | 稳定调度、长上下文、结构化决策 | 中高能力即可，避免长期占用最高价模型。 |
-| `Res_1~3` | 长上下文、强推理、资料综合、架构设计 | 主研究员可用强模型，辅助研究员可用性价比模型。 |
-| `Exe_1~3` | 代码能力、工具调用稳定性、错误修复能力 | 主执行员用强代码模型，备用执行员用低成本模型。 |
-| `Dbg_1` | 逻辑推理、需求覆盖检查 | 可使用强推理模型。 |
-| `Dbg_2` | 边界条件、安全、异常路径 | 使用均衡模型，重点稳定和细致。 |
-| `Dbg_3` | 性能、回归、格式、资源检查 | 优先便宜快速模型。 |
-| `Judge` | 综合判断、冲突仲裁、最终封版 | 可分配最高杠杆模型，但应受预算限制。 |
+这些证据可以并列存在；Main 在做分配时按 Assignment 要求判断“证据是否足够”，而不是默认按线性链自动升级。未知字段保持 `unknown`，不得猜测、补全或编造。
 
-#### 3.4 分配原则
+#### 3.3 画像 Schema
 
-1. **先发现模型，再分配角色**：不得预设某个固定模型必然存在。
-2. **按任务类型匹配能力**：研究偏长上下文与推理，执行偏代码与工具，调试偏检查能力，仲裁偏综合判断。
-3. **按成本控制并发**：高价模型默认只给少数高杠杆角色，不能批量分配给所有子 Agent。
-4. **按任务难度动态升降级**：简单任务可整体使用低成本模型；复杂任务才提升关键角色模型等级。
-5. **保守处理未知价格**：未知价格模型不应被大量并发使用，除非用户明确允许。
-6. **支持用户覆盖**：用户可以指定预算、禁用模型、固定某角色模型或限制高价模型数量。
-
-#### 3.5 推荐分配流程
-
-```text
-Fetch Available Models
-        ↓
-Normalize Model Metadata
-        ↓
-Score by Cost / Context / Capability / Stability
-        ↓
-Build Role Demand Profiles
-        ↓
-Assign Models to Sub Agents
-        ↓
-Validate Budget and Coverage
-        ↓
-Write Agent Config + Matrix Metadata
-```
-
-伪代码：
-
-```pseudo
-models = fetch_user_available_models()
-profiles = normalize(models)
-
-for model in profiles:
-    model.score = evaluate(
-        cost = model.price,
-        context = model.context_window,
-        capability = model.capability_bias,
-        stability = model.runtime_reliability
-    )
-
-roles = build_role_profiles([main, res_1..3, exe_1..3, dbg_1..3, judge])
-assignments = match_models_to_roles(profiles, roles, user_budget_policy)
-
-validate(assignments)
-persist(assignments)
-```
-
-####3.6 配置与审计输出
-
-分配结果应写入实际创建的子 Agent 配置，例如：
+每个候选模型都应形成归一化画像。建议最小字段如下，字段缺失时写 `unknown`：
 
 ```json
 {
-  "id": "res_1",
-  "model": {
-    "primary": "<selected-model-id>",
-    "fallbacks": []
+  "model_profile": {
+    "model_id": "<selected-model-id>",
+    "provider_ref": "<provider-or-unknown>",
+    "source_refs": ["<provenance-ref>"],
+    "evidence": {
+      "configured_allowed": "true|false|unknown",
+      "ready_marker": "true|false|unknown",
+      "catalog_listed": "true|false|unknown",
+      "targeted_probe": "true|false|unknown",
+      "runtime_validated": "true|false|unknown"
+    },
+    "context": {
+      "native": "<tokens-or-unknown>",
+      "effective": "<tokens-or-unknown>",
+      "output": "<tokens-or-unknown>",
+      "structured_stability": "high|medium|low|unknown"
+    },
+    "capabilities": {
+      "reasoning": "high|medium|low|unknown",
+      "coding": "high|medium|low|unknown",
+      "debugging": "high|medium|low|unknown",
+      "writing": "high|medium|low|unknown",
+      "tool_use": "high|medium|low|unknown",
+      "multimodal": "high|medium|low|unknown",
+      "schema_adherence": "high|medium|low|unknown",
+      "summarization": "high|medium|low|unknown",
+      "retrieval": "high|medium|low|unknown",
+      "planning": "high|medium|low|unknown"
+    },
+    "runtime": {
+      "latency": "<ms-or-unknown>",
+      "stability": "high|medium|low|unknown",
+      "failure_rate": "<rate-or-unknown>",
+      "rate_limits": "<limits-or-unknown>",
+      "concurrency": "<slots-or-unknown>"
+    },
+    "cost": {
+      "input_token_price": "<known-or-unknown>",
+      "output_token_price": "<known-or-unknown>",
+      "probe_cost": "<known-or-unknown>",
+      "budget_sensitivity": "high|medium|low|unknown"
+    },
+    "policy": {
+      "privacy": "<level-or-unknown>",
+      "data_residency": "<local-or-unknown>",
+      "fixed_role": "<role-or-unknown>",
+      "disabled": ["<model-or-provider>"],
+      "warnings": ["<warning>"]
+    }
   }
 }
 ```
 
-同时，Matrix 应在自己的元数据中记录模型选择依据，便于用户审计：
+画像里的能力维度不要求每项都有明确数值，但必须可回读、可审计、可标注证据来源；高风险缺失项应直接标记 `unknown` 并触发保守分配或 probe。
+
+#### 3.4 角色先验与 per-Assignment 需求向量
+
+角色是先验，不是死绑定；真正分配时按 Assignment 重新计算需求向量。最少要包含：
+
+- **角色先验**：
+  - Researcher：偏重低成本、长上下文、摘要/比较/风险识别
+  - Executor：偏重工具适配、代码/操作能力、产物生成、稳定输出
+  - Debugger：偏重结构化输出、错误定位、回归/一致性/安全校验
+  - Integration：偏重跨产物合并、冲突仲裁、变更冻结后的整合
+  - Judge：偏重证据整合、门控判断、规则一致性与最终裁决
+
+- **per-Assignment demand vector**：
+  - 目标角色/子角色
+  - 输入规模与上下文需求
+  - 预期输出规模
+  - 结构化输出要求
+  - 工具需求（shell / file / browser / API / patch 等）
+  - 隐私与驻留等级
+  - 失败容忍度与重试预算
+  - 预计 probe 次数与 probe 成本
+  - 预算上限与时延上限
+  - 固定/禁用模型与回退策略
+  - 是否允许 premium concurrency
+
+需求向量必须按 Assignment 构建，而不是按静态角色一次性固定。相同角色在不同 Assignment 上可以升降级；高能力/高价模型只应用于高杠杆、高难度或高失败成本节点，轻量模型优先覆盖研究、格式校验、回归和低风险执行。
+
+#### 3.5 硬约束与打分
+
+先硬过滤，再打分；任何硬约束不满足的候选直接淘汰。硬约束至少包括：
+
+- 用户固定/禁用模型与显式回退策略
+- allowlist 边界
+- 角色/工具/结构化输出硬要求
+- 上下文最低需求
+- 隐私/驻留/权限边界
+- 可用并发与配额
+- 预算上限与 probe 上限
+
+打分必须把估计输入 token、输出 token、重试次数、probe 次数和总成本纳入同一分配决策。推荐排序维度：
+
+1. 能力覆盖度
+2. 可靠性与稳定性
+3. 上下文匹配度
+4. 工具适配度
+5. 预估时延
+6. 预估输入 token
+7. 预估输出 token
+8. 预估重试/探测代价
+9. 预估总成本
+
+`premium concurrency` 的含义是：高价/高杠杆模型的并发槽位要严格保留给确有必要的高难 Assignment，不能被低价值节点占满；预算不足时应先降级、缩 scope 或回退，而不是默认扩槽。
+
+#### 3.6 推荐工作流与伪代码
+
+```text
+1) 读取用户策略、allowlist、固定/禁用模型、预算与隐私边界
+2) 汇总所有候选来源并归一化 provenance
+3) 生成每个候选模型的画像，未知项保持 unknown
+4) 为每个 READY Assignment 构建 demand vector
+5) 先 hard-filter，再按 capability/reliability/context/tool/latency/estimated tokens/retries/probes/total cost scoring
+6) 检查预算与 premium concurrency
+7) 必要时执行 targeted probe；probe 只补局部证据，不冒充全面运行证明
+8) 绑定 model ↔ Assignment，记录 reason/warnings/fallback
+9) 做 schema 校验、readback 校验、runtime acceptance
+10) 若证据变化或运行失败，则 rematch / escalate / de-escalate
+```
+
+```pseudo
+sources = discover(user_policy, openclaw_allowlist, user_models, catalogs)
+models = normalize_with_provenance(sources)
+models = apply_hard_constraints(models, user_policy, allowlist)
+for assignment in ready_assignments:
+    if has_valid_current_allocation_record(assignment):
+        continue
+    demand = build_demand_vector(assignment)
+    candidates = hard_filter(models, demand)
+    if candidates.empty:
+        fallback = choose_fallback_or_wait_user(assignment)
+        record_allocation(assignment, fallback, reason="no_hard_match", warnings=["hard_filter_empty"])
+        continue
+    ranked = score(
+        candidates,
+        capability=demand.capability,
+        reliability=demand.reliability,
+        context=demand.context,
+        tool=demand.tool,
+        latency=demand.latency,
+        input_tokens=estimate_input_tokens(assignment),
+        output_tokens=estimate_output_tokens(assignment),
+        retries=estimate_retries(assignment),
+        probes=estimate_probe_cost(assignment),
+        total_cost=estimate_total_cost(assignment)
+    )
+    selected = choose_best(ranked, budget, premium_concurrency, policy)
+    if needs_targeted_probe(selected, demand):
+        selected = run_targeted_probe(selected, demand)
+    if selected.runtime_validated or selected.ready_to_assign:
+        bind_assignment(assignment, selected)
+    else:
+        fallback = choose_fallback_or_wait_user(assignment)
+        bind_assignment(assignment, fallback)
+    record_allocation_audit(assignment, selected, demand)
+```
+
+#### 3.7 通用分配与审计示例
+
+```json
+{
+  "model_allocation": {
+    "policy_snapshot": {
+      "allowlist": ["<selected-model-id>", "<fallback-model-id>"],
+      "budget": "<budget-or-unknown>",
+      "premium_concurrency": "<slots-or-unknown>",
+      "disabled": ["<disabled-model-id>"],
+      "privacy": "<policy-level>"
+    },
+    "assignments": {
+      "<task-id>/<subtask-id>/1": {
+        "role": "Executor",
+        "model": "<selected-model-id>",
+        "evidence": "runtime_validated",
+        "reason": "tool+context+cost match",
+        "warnings": ["<unknown-price>", "<probe-required-if-any>"],
+        "fallback": "<fallback-model-id-or-wait_user>",
+        "budget_cost": "<estimated-cost-or-unknown>"
+      }
+    },
+    "audit": {
+      "inputs": ["<policy-ref>", "<allowlist-ref>", "<catalog-ref>", "<probe-ref>"],
+      "decision": "selected after hard filter and scoring",
+      "rematch": ["<none-or-reason>"]
+    }
+  }
+}
+```
+
+审计记录至少要能回答：为什么选这个模型、为什么没选其他候选、预算如何计算、是否 probe、是否 runtime validated、何时需要 rematch。
+
+#### 3.8 配置、readback、probe、runtime acceptance 与 rematch 门禁
+
+- **配置**：只写 OpenClaw 支持的字段，不引入未支持的顶层扩展；模型与 Agent 绑定必须可由当前 schema 表达。
+- **readback**：写入后必须回读配置，核对 allowlist、模型绑定、会话可见性、只读边界与调度权限是否与预期一致。
+- **targeted probe**：仅在证据不足、成本可接受且 probe 结果能显著降低不确定性时使用；probe 不得替代 runtime validation。
+- **runtime acceptance**：必须由真实非 Main 子 Agent 的运行结果证明；目录可见、ready-marker、静态声明都不算。
+- **rematch / escalate / de-escalate**：当证据等级变化、限流、失败、预算变化、权限变化或模型不可用时，Main 应重新匹配；必要时升级、降级或回退。
+
+`unknown` 是合法状态，但不可长期悬置：若未知信息影响 Assignment 成败，必须通过 probe、readback 或 runtime 验收把它收敛掉；若不能收敛，则应进入回退或等待用户策略。
 
 ```json
 {
   "model_allocation": {
     "source": "user_available_models",
-    "policy": {
-      "prefer_low_cost": true,
-      "premium_concurrency_limit": 1
-    },
     "assignments": {
-      "res_1": {
+      "<agent-id>": {
         "model": "<selected-model-id>",
-        "reason": "long context + strong reasoning for research planning"
+        "reason": "<capability-and-cost-match>",
+        "evidence": "<configured_allowed|targeted_probe|runtime_validated>",
+        "fallback": "<fallback-model-id-or-wait_user>",
+        "warnings": ["<unknown-metadata-warning>"]
       }
     },
-    "warnings": [
-      "Some model prices are unknown; conservative allocation was used."
-    ]
+    "audit": "<allocation-audit-ref>",
+    "warnings": ["<unknown-metadata-warning>"]
   }
 }
 ```
-
-#### 3.7 校验要求
-
-* 用户可用模型列表不能为空。
-* 每个即将创建或激活的子 Agent 必须有明确模型。
-* 高价模型数量不得超过用户预算策略。
-* 未知价格模型必须记录风险。
-* Matrix 自定义元数据不得写入 OpenClaw 不支持的顶层配置字段。
-* 配置写入后必须验证 OpenClaw 配置有效。
 
 ### 4. `openclaw.json` 配置映射
 
-> 注意：以下为**概念示意**（早期版本的 `bridges` 字段并非 OpenClaw 真实配置格式）。实际配置请使用仓库根目录的 [`openclaw.json.example`](./openclaw.json.example) —— 基于真实 OpenClaw `agents.list` 结构，包含 Main 与全部 8 个子 Agent 的注册与 workspace 映射，复制后替换模型占位符即可。
+以下仅为概念映射；真实字段以当前 OpenClaw schema 为准。不得因为示例文件存在就假定运行时已启用。
 
 ```jsonc
-// 概念示意：真实格式见 openclaw.json.example
 {
   "agents": {
-    "defaults": { "workspace": "<matrix-root>/workspace", "model": { "primary": "<main-model>" } },
+    "defaults": {"workspace": "<workspace>", "model": {"primary": "<main-model>"}},
     "list": [
-      { "id": "main" },
-      { "id": "res_1",  "workspace": "<matrix-root>/workspace/agents/res_1" },
-      { "id": "res_2",  "workspace": "<matrix-root>/workspace/agents/res_2" },
-      { "id": "exe_1",  "workspace": "<matrix-root>/workspace/agents/exe_1" },
-      { "id": "exe_2",  "workspace": "<matrix-root>/workspace/agents/exe_2" },
-      { "id": "dbg_1",  "workspace": "<matrix-root>/workspace/agents/dbg_1" },
-      { "id": "dbg_2",  "workspace": "<matrix-root>/workspace/agents/dbg_2" },
-      { "id": "dbg_3",  "workspace": "<matrix-root>/workspace/agents/dbg_3" },
-      { "id": "judge",  "workspace": "<matrix-root>/workspace/agents/judge" }
+      {"id": "main"},
+      {"id": "res_1", "workspace": "<workspace>/agents/res_1"},
+      {"id": "exe_1", "workspace": "<workspace>/agents/exe_1"},
+      {"id": "dbg_1", "workspace": "<workspace>/agents/dbg_1"},
+      {"id": "judge", "workspace": "<workspace>/agents/judge"}
     ]
   }
 }
 ```
 
-> **配置边界：** 上述映射用于描述 Matrix 的角色与共享状态关系，不会仅凭文件存在就自动触发子 Agent。实际配置必须使用当前 OpenClaw 版本支持的 Agent 注册、Main 子 Agent allowlist、Session 可见性和必要的 Agent-to-Agent 权限字段。配置写入后必须通过"配置后运行时验收"，不能只检查 JSON 语法或角色目录是否存在。
+配置必须同时设置 Main 的子 Agent allowlist、Session 可见性、必要调用权限和 Worker 对状态总线的只读边界，并通过第 8 步验收。
 
 ### 5. 提示词 (Prompt) 策略
-* **Main Agent**（`prompts/main.md`）：包含确定性分流算法、控制器有序步骤、模式边界、回执验证、重试/熔断/恢复、完成门控和自动归档逻辑。
-* **Worker Agents**（`prompts/res.md`、`prompts/exe.md`、`prompts/dbg.md`、`prompts/judge.md`）：必须遵循"协议化输出"，先读总线核对 Task_ID 和依赖，仅写入授权章节，输出结构化回执。
-* **权限控制**：通过 System Prompt 强制各 Agent 仅拥有对自身章节的"写"权限和对他人的"读"权限。
+
+* **Main**：包含 MAM 读取、硬覆盖与完整评分、Researcher 数量、两层 DAG、渐进 `DAG_Update`、Assignment、统一回执/Digest/`State_Patch` 验证、串行状态写入、去重冲突、隔离集成、两级重试、Judge/MAM/归档门禁。
+* **Worker**：只读 `state.md`，核对 Task/Subtask/Assignment/依赖/范围；不得物理写状态；仅返回完整 `WORKER_COMPLETED` JSON、证据和目标章节的 `State_Patch`。
+* **Claude Code / Codex**：仅当用户明确指定本轮或具体子任务时，通过用户本地 CLI 调用；不使用 ACP，不创建特殊 OpenClaw Agent ID。用户未指定时默认 `openclaw_native`。Main 先检查 PATH、启动、认证、工作目录/写入/命令权限与非交互支持，状态为 `AVAILABLE / NOT_INSTALLED / NOT_AUTHENTICATED / NOT_CONFIGURED / UNSUPPORTED_MODE / START_FAILED`。不可用时告知原因、不安装、不保存凭证、不伪装调用，默认回退原生 Executor 并记录；若用户禁止回退则暂停。CLI 仍遵循同一隔离、验收、回执与两级熔断规则，Evidence 记录版本、退出码、测试和 diff 摘要，不记录凭证。
+
+`<task_folder>/MAM_state.md` 固定精简 Schema：
+
+```markdown
+# MAM Project Memory
+
+## Project Overview
+- **Project_Name**: `<project-name>`
+- **Project_Path**: `<task_folder>`
+- **Purpose**: `<purpose>`
+- **Current_Stage**: `<stage>`
+- **Last_Completed_Task_ID**: `<task-id>`
+- **Last_Updated_At**: `<timestamp>`
+
+## Active Principles
+- `<active-principle>`
+
+## Active Boundaries
+- **Allowed**: `<allowed>`
+- **Forbidden**: `<forbidden>`
+- **Safety**: `<safety-boundary>`
+
+## Current Architecture
+- `<current-architecture>`
+
+## Key Decisions
+### <decision-title>
+- **Background**: `<background>`
+- **Decision**: `<decision>`
+- **Decision_Reason**: `<reason>`
+- **Alternatives_Not_Used**: `<alternatives>`
+- **Impact**: `<impact>`
+
+## Recent Important Changes
+- `<important-change>`
+
+## Acceptance Evidence
+- `<durable-evidence>`
+
+## Risks And Technical Debt
+- `<risk-or-debt>`
+
+## Open Questions
+- `<question-or-None>`
+
+## Next Starting Point
+- `<next-starting-point>`
+```
+
+MAM 不得包含完整聊天/状态副本、全量 DAG、调度与重试流水、大日志、临时 Session/Run/Assignment、失效重复决定或凭证。写后验证文件可读、固定章节齐全、`Last_Completed_Task_ID` 匹配、无敏感信息/运行日志，且足以回答项目现状、原则边界、近期变更、可用证据与下一步。
