@@ -23,7 +23,8 @@
 1. **状态集中化（`state.md`）**：智能体之间不进行直接通信。所有信息流通过单一的结构化 Markdown 文件流转，确保"单一可信源"。
 2. **严格沙盒隔离**：每个智能体（研究员、执行者、调试员）在其独立的 OpenClaw 会话中运行，保持"干净"的上下文，专注于各自的职责。
 3. **摘要驱动执行**：智能体必须输出结构化摘要。主控制器仅根据这些摘要做出路由决策，从而大幅节省 Token 消耗并减少幻觉。
-4. **生命周期自动化**：从新任务检测（通过 `New_Task_Flag`）到用户确认归档，系统自主管理完整的任务生命周期。
+4. **生命周期自动化**：从新任务检测（通过 `New_Task_Flag`）到 Judge PASS 后的自动内部归档，系统自主管理完整的任务生命周期，仅在破坏性/不可逆/外部/隐私敏感操作时才需用户确认。
+5. **运行时可验证调度**：Agent 注册、角色提示词（`.md` 格式）和工作区文件只代表静态配置完成。Main 必须按照 `Dispatch Plan` 真正调用被分配的子 Agent，为其创建独立 Session，并验证结果已回写同一份 `state.md`。
 
 ---
 
@@ -35,7 +36,7 @@
 | **研究池** | `Res_1~2` | 技术调研、架构设计与执行手册编写 | **执行手册** |
 | **执行池** | `Exe_1~2` | 代码实现、环境搭建与部署 | **最终交付物** |
 | **调试池** | `Dbg_1~3` | 逻辑、边界与性能验证 | **调试报告 / 日志** |
-| **仲裁员** | `Judge` | 汇总调试报告并进行最终评估 | **评估结果 / 审批意见** |
+| **仲裁员** | `Judge` | 汇总调试报告并进行最终评估 | **评估结果 / 裁决** |
 
 > 默认启用 `res_1~2` 与 `exe_1~2`（池子可按需扩展到 `_3`：在 `openclaw.json` 的 `agents.list` 中新增同名条目，并在 `workspace/agents/` 下创建对应目录）。
 
@@ -73,6 +74,31 @@ cp openclaw.json.example ~/.openclaw/openclaw.json
 - 从 `/prompts` 目录为每个角色注入专属提示词。
 - 在工作区生成 `state.md` 模板（可参考 [`workspace/state.md.example`](./workspace/state.md.example)）。
 - 监听 `New_Task_Flag` 以启动执行流程。
+- 为 Main 开启受限的子 Agent 调度权限，并仅允许调用已注册的 Matrix 角色。
+- 配置完成后执行一次运行时验收，确认子 Agent 的独立 Session、共享黑板读写和结构化回执均真实生效。
+
+### 3. 运行时调度验收
+
+仅生成角色名单、提示词、工作区和配置文件，**不代表 Matrix 已经投入运行**。如果没有真实的子 Agent Session 和共享黑板写回，系统仍然只是静态部署，并未启用运行时调度器。
+
+配置完成后，Main Agent 必须执行一次最小验收任务：
+
+1. 在 `state.md` 中创建唯一 `Task_ID`，写入明确的 `[Dispatch Plan]`。
+2. 按计划真实调用至少一个非 Main 子 Agent，而不是由 Main 模拟该角色输出。
+3. 确认该角色运行在独立 Session 中，并记录实际的 Agent ID、Session ID 或 Run ID。
+4. 子 Agent 必须先读取同一绝对路径下的 `state.md`，再仅向其授权章节写入结构化结果。
+5. Main 再次读取 `state.md`，确认 `Task_ID` 一致、文件修改时间已更新且角色结果真实存在。
+6. 由 Judge 或 Main 对以上证据给出 `PASS / FAIL` 结论；任一证据缺失均视为运行时调度未启用。
+
+验收至少应同时满足以下条件：
+
+- `state.md` 中存在当前任务的唯一 `Task_ID` 和最近更新时间。
+- 至少一个已分配的非 Main Agent 存在真实 Session / Run。
+- 子 Agent 回执中的 `Task_ID` 与共享黑板一致。
+- 子 Agent 的结果已经写入同一份共享黑板，而不是只返回在聊天消息中。
+- Main 或 Judge 已记录最终验收结论。
+
+> **重要说明：** `openclaw.json.example` 中的角色映射和 `matrix-config` 一类描述文件不会自动成为调度器。实际部署时仍需按照当前 OpenClaw 版本配置 Main 的子 Agent 调用权限、Session 可见性及必要的 Agent-to-Agent 权限，并通过真实调用完成验收。
 
 ### 4. 初始化子 Agent（首次运行）
 
@@ -82,10 +108,9 @@ cp openclaw.json.example ~/.openclaw/openclaw.json
 
 ## 📂 目录结构
 
-- `/prompts`：包含各角色（RES、EXE、DBG、JUDGE）专属协议的 `.md` 模板文件（含 `{id}` 占位符，按实例替换）。
-- `/workspace`：活跃的 `state.md` 总线与执行环境（模板见 `state.md.example`，运行文件不入库）。
-- `/workspace/agents/<id>/`：每个子 Agent 的独立 workspace，内置实例化后的 `AGENTS.md` 角色提示词。
-- `/workspace/history`：已完成任务的自动归档目录（已被 `.gitignore` 忽略）。
+- `/prompts`：包含各角色（`main.md`、`res.md`、`exe.md`、`dbg.md`、`judge.md`）的专属协议提示词。
+- `/workspace`：活跃的 `state.md` 总线与执行环境。
+- `/workspace/history`：已完成任务的自动归档目录。
 - `Architecture_v5.0.md`：用于自举配置的"可信源"文档。
 - `openclaw.json.example`：会话映射配置模板（真实 OpenClaw 格式）。
 
@@ -94,9 +119,37 @@ cp openclaw.json.example ~/.openclaw/openclaw.json
 ## 🔄 自愈循环逻辑
 
 当 `Artifacts`（交付物）部分发生错误时：
-1. **检测**：`Debugger` 识别故障，并向质量中心写入 `FAIL` 报告。
-2. **路由**：`Main` 读取报告，携带具体错误日志重新分配 `Executor`。
-3. **升级**：若循环 3 次仍未成功，`Main` 触发"计划重置"，将任务退回 `Researcher` 重新设计方案。
+1. **检测**：`Debugger` 识别故障，并向 `## [3] 质量中心` 写入 `FAIL` 报告（含根因签名和严重等级）。
+2. **路由**：`Main` 读取报告，携带具体错误日志重新分配 `Executor`，保留已通过节点。
+3. **升级**：若同一阶段/根因签名连续失败 **3 次**，触发熔断（`CIRCUIT_OPEN`）：停止重调度，将任务退回 `Researcher` 要求实质性修订方案，或进入 `WAITING_USER` 请求人工介入；仅在有可验证进展或方案实质变更后才重置计数器。
+
+### 任务分流规则
+
+Main 在接收任务后，先应用硬覆盖，再按加法评分确定模式，并记录到 `state.md`：
+
+| 模式 | 分数 | 适用场景 |
+|---|---|---|
+| `MAIN_ONLY` | 0–2 | 纯对话、只读查询、微小可逆操作 |
+| `MINIMAL` | 3–5 | 单专家 + 按需验证 |
+| `FULL` | ≥6 | 完整 Researcher → Executor → Debugger → Judge DAG |
+
+硬覆盖（优先于分数）：用户明确要求 Matrix/独立 QA → `FULL`；需要安全确认 → `WAITING_USER`；纯对话/只读 → `MAIN_ONLY`。
+
+### 生命周期状态
+
+`INIT → TRIAGED → DISPATCHING → RUNNING → VERIFYING → JUDGING → ARCHIVING → COMPLETED`
+
+侧边状态：`WAITING_USER`、`RETRYING`、`RECOVERING`、`CIRCUIT_OPEN`、`FAIL`
+
+### 节点账本
+
+每个调度节点在 `[1] 调度计划` 中维护：角色、依赖、状态（`BLOCKED_BY_DEPENDENCY / READY / RUNNING / PASS / FAIL / RETRYING / CIRCUIT_OPEN`）、授权章节、Agent ID、Session Key/Run ID、重试计数、时间戳、回执和写回证据。Main 仅调度 `READY` 节点；下游节点在前置节点 `PASS` 后解锁。
+
+### 完成门控与自动归档
+
+完成门控要求：交付物满足验收标准；所有必要检查通过；账本中每个必要节点均为 `PASS`；无未解决阻塞或熔断；所有回执/Task_ID/写回证据通过验证；Judge 返回 `PASS`；结构与安全约束成立。
+
+Judge `PASS` 后，Main 立即执行内部原子性幂等归档（以 `Task_ID` 命名），记录路径和校验和，重置活跃状态，并报告完成——**无需**例行用户确认。破坏性/不可逆操作、外部发布、凭证或隐私敏感访问、权限/安全边界变更**仍需**用户同意。
 
 ---
 
