@@ -32,10 +32,12 @@
 | 角色组 | ID | 职责 | 关键产出 |
 | :--- | :--- | :--- | :--- |
 | **主控制器** | `Main` | 全局路由、DAG 调度与用户交互 | 调度指令 & 状态更新 |
-| **研究池** | `Res_1~3` | 技术调研、架构设计与执行手册编写 | **执行手册** |
-| **执行池** | `Exe_1~3` | 代码实现、环境搭建与部署 | **最终交付物** |
+| **研究池** | `Res_1~2` | 技术调研、架构设计与执行手册编写 | **执行手册** |
+| **执行池** | `Exe_1~2` | 代码实现、环境搭建与部署 | **最终交付物** |
 | **调试池** | `Dbg_1~3` | 逻辑、边界与性能验证 | **调试报告 / 日志** |
 | **仲裁员** | `Judge` | 汇总调试报告并进行最终评估 | **评估结果 / 审批意见** |
+
+> 默认启用 `res_1~2` 与 `exe_1~2`（池子可按需扩展到 `_3`：在 `openclaw.json` 的 `agents.list` 中新增同名条目，并在 `workspace/agents/` 下创建对应目录）。
 
 ---
 
@@ -47,12 +49,21 @@
 - 确保已安装 [OpenClaw](https://github.com/OpenClaw/OpenClaw) 并完成 LLM API 配置。
 - 准备项目目录：
 ```bash
-git clone https://github.com/YourUsername/OpenClaw-Matrix.git
-cd OpenClaw-Matrix
-mkdir -p workspace/history
+git clone https://github.com/WEI-6/OpenClaw-Multi-Agent-Matrix.git
+cd OpenClaw-Multi-Agent-Matrix
 ```
 
-### 2. 自举启动指令
+### 2. 配置 OpenClaw 会话映射
+
+参考 [`openclaw.json.example`](./openclaw.json.example)（真实 OpenClaw 配置格式，含全部 9 个 Agent 的 `agents.list` 条目与 workspace 映射），复制为自己的 `openclaw.json` 并替换占位符：
+
+```bash
+cp openclaw.json.example ~/.openclaw/openclaw.json
+```
+
+> ⚠️ 各子 Agent 的 workspace 必须存在：`workspace/agents/{res_1,res_2,exe_1,exe_2,dbg_1,dbg_2,dbg_3,judge}/`（仓库已内置各角色的 `AGENTS.md` 提示词）。
+
+### 3. 自举启动指令
 启动 OpenClaw 会话后，向 **Main Agent** 发送以下指令：
 
 > *"请读取并解析根目录下的 `Architecture_v5.0.md` 文件。根据此文档，自主配置我的 OpenClaw Matrix 会话、初始化 `state.md` 总线、注入各角色专属提示词，并进入新任务的 INIT 状态。"*
@@ -60,18 +71,23 @@ mkdir -p workspace/history
 **系统将自动完成：**
 - 注册所有 Agent ID 与 Session ID。
 - 从 `/prompts` 目录为每个角色注入专属提示词。
-- 在工作区生成 `state.md` 模板。
+- 在工作区生成 `state.md` 模板（可参考 [`workspace/state.md.example`](./workspace/state.md.example)）。
 - 监听 `New_Task_Flag` 以启动执行流程。
+
+### 4. 初始化子 Agent（首次运行）
+
+首次启动子 Agent 时，OpenClaw 会为其 workspace 初始化 `MEMORY.md` 与 `memory/` 目录（记忆索引）。若子 Agent 从未启动过，其记忆索引不会建立——这属于正常现象，启动一次对应会话即可自动完成初始化。`workspace/state.md` 等活跃运行文件已被 `.gitignore` 排除，不会进入版本库。
 
 ---
 
 ## 📂 目录结构
 
-- `/prompts`：包含各角色（RES、EXE、DBG、JUDGE）专属协议的 `.txt` 文件。
-- `/workspace`：活跃的 `state.md` 总线与执行环境。
-- `/workspace/history`：已完成任务的自动归档目录。
+- `/prompts`：包含各角色（RES、EXE、DBG、JUDGE）专属协议的 `.md` 模板文件（含 `{id}` 占位符，按实例替换）。
+- `/workspace`：活跃的 `state.md` 总线与执行环境（模板见 `state.md.example`，运行文件不入库）。
+- `/workspace/agents/<id>/`：每个子 Agent 的独立 workspace，内置实例化后的 `AGENTS.md` 角色提示词。
+- `/workspace/history`：已完成任务的自动归档目录（已被 `.gitignore` 忽略）。
 - `Architecture_v5.0.md`：用于自举配置的"可信源"文档。
-- `openclaw.json.example`：会话映射配置模板。
+- `openclaw.json.example`：会话映射配置模板（真实 OpenClaw 格式）。
 
 ---
 
