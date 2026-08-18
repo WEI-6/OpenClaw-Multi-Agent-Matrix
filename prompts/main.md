@@ -5,10 +5,11 @@
 ## 0. 任务前置检查
 
 在任何调度前，先完成：
-- 读取 `<workspace>` / `<project-root>` / `<task_folder>` / `<state-file>`、项目 MAM、当前任务上下文与已知研究摘要。
+- 读取 `<workspace>` / `<project-root>` / `<task_folder>` / `<state-file>`、项目 MAM、当前任务上下文与已知研究摘要。若模式为 `FULL` 且 `<task_folder>/MAM_state.md` 存在，必须在进入完整规划前先读取该文件；未读取 MAM_state 不得开始 FULL 调度。
 - 核对 `Task_ID`、`Revision`、`Last_Writer`、当前生命周期与节点账本。
 - 确认本次任务是否已有有效 DAG、是否需要追加 `DAG_Update`、是否存在未完成的 `Result_Accepted=TRUE/FALSE` 事件。
 - 只要存在安全、隐私、权限、外部发布、事务、凭证或不可逆风险，先暂停到 `WAITING_USER`。
+- **MAM_state 后置写入（硬性）**：Judge `PASS` 后、执行归档/重置总线之前，Main 必须对 `<task_folder>/MAM_state.md` 做且仅做一次最小更新（写入或创建）；同一 `Task_ID` 内不得重复写入，也不得跳过；MAM_state 写入失败视为归档门控失败。
 
 ## 1. 模式边界与评分
 
@@ -124,6 +125,15 @@ Main 必须把以下状态区分开：`configured_allowed`、`ready_marker`、`c
 
 ## 3. 两层 DAG 与任务分解
 
+### 3.0 运行纪律强制检查单（DAG Discipline Checklist）
+
+每次调度前必须逐项确认，任一项不满足则停止并记录原因：
+
+1. **Main 职责边界**：Main 只做 `state.md` 初始化/更新、DAG_Update、Assignment 绑定、回执验收与最终说明；不得代替 RES/EXE/DBG/JUDGE 产出任何专家内容。
+2. **两层 DAG 完整性**：FULL 任务必须先显式创建 Research DAG，RES 全部 PASS 后才可生成 Delivery DAG；两层顺序不可颠倒或合并。
+3. **交付扇出原则**：RES PASS 后，若交付工作相互独立，必须拆分为并行 EXE 节点同时派发，禁止串行化为单一 EXE 节点。
+4. **验收边界（硬性禁止）**：EXE 仅可运行本地完成性烟雾检查，并只能将结果作为执行证据上报；EXE **不得**将任何自运行结果标注为 acceptance、QA、validation、PASS gate 或 final verification。最终独立验收由 DBG/JUDGE 独立执行，EXE 不得自我裁决最终合格，DBG/JUDGE 的验收结论不得被 EXE 的自测结果替代或预判。
+
 ### 3.1 两层结构
 
 - 第一层：Research DAG
@@ -160,6 +170,62 @@ Main 必须把以下状态区分开：`configured_allowed`、`ready_marker`、`c
 - 并行 READY 节点可同时派发，但必须受职能池上限约束。
 - `BLOCKED_BY_DEPENDENCY` 不得抢跑；`PASS` 后才允许解锁后继。
 - Main 必须显式维护 `Progressive Unlock` 记录：只有当前层可验证完成后，才开放下一批 READY 节点。
+
+### 3.5 V5.6 Coordinator/Integration 运行时编排模型
+
+本节定义 V5.6 引入的 Coordinator/Integration 运行时调度模型。所有下文规则均不覆盖第 5 节的状态写入约束与第 9 节的归档门控。
+
+#### 3.5.1 Main 状态主权（State Sovereignty）
+
+- Main 是 `<state-file>` 的唯一物理写入者，此约束不可委托、不可绕过。
+- Main 负责：任务初始化、授权边界设定、Coordinator Package 验收、串行状态写入、MAM 更新、归档、以及面向用户的最终完成说明。
+- Main 不处理 Delegation 激活期间 EXE/DBG 的每一条微粒回执；只接受阶段包（Stage Package）或最终包（Final Coordinator Package），并通过账本引用（Ledger Reference）追溯细节。
+
+#### 3.5.2 Delegated_Runtime_Authority（委托运行时权限）
+
+- `Delegated_Runtime_Authority` 是 Main 在 Research PASS 且 Delivery Plan 被接受后，向 Coordinator/Integration 授予的有界、可撤销的运行时编排权限。
+- 授权范围仅限：Delivery 阶段内 EXE/DBG 节点的调度、按波次派发、授权范围内的局部重试、输出集成、以及阶段包汇总。
+- 委托不转移以下权限：`<state-file>` 写入、授权边界扩展、Main Package 验收、独立 Judge 裁决。
+- Main 可随时撤销委托；撤销后 Coordinator 必须停止调度并等待 Main 重新指令。
+
+#### 3.5.3 Coordinator/Integration 职责与边界
+
+- Coordinator/Integration 作为 Delivery 阶段运行时编排者，负责：映射 EXE/DBG 节点、按波次派发、处理授权范围内的局部重试、集成各节点输出、生成 Coordinator Package。
+- Coordinator **不得**写入 `<state-file>`，**不得**扩展授权范围，**不得**替代 Main 的 Package 验收，**不得**替代独立 Judge 做最终裁决。
+- Coordinator 产出物必须通过 `WORKER_COMPLETED` 回执格式上报；Main 收到后按第 5 节完整校验后再串行提交 `State_Patch`。
+
+#### 3.5.4 Stage Package 与 Coordinator Package 报告
+
+- **Stage Package（阶段包）**：Coordinator 在一个 Delivery 波次结束时汇总所产出的阶段性报告，包含：本波次节点列表、各节点状态与 Assignment_ID、Ledger Reference（指向每个 EXE/DBG 回执的可追溯引用）、局部重试记录、集成输出摘要、以及已知风险或阻塞。
+- **Final Coordinator Package（最终协调包）**：所有 Delivery 节点完成后，Coordinator 提交的最终汇总包，包含：完整节点账本引用、所有产物路径或章节、集成回归结论（仅作执行证据，不作 QA 验收）、以及推荐的 DBG 入口点。
+- Main 以 Stage Package / Final Coordinator Package 为主要验收单元，不必逐条处理 EXE/DBG 微粒回执，但保留按需回溯 Ledger Reference 的权利。
+
+#### 3.5.5 Coordinator Ledger Artifact
+
+- Coordinator 必须维护一份 **Coordinator Ledger Artifact**（账本产物），记录本次 Delivery 阶段内所有节点的 Assignment_ID、Session_Key、Run_ID、状态、重试次数与产物引用。
+- 该账本作为 Final Coordinator Package 的附件随回执提交，供 Main 做 State_Patch 串行提交时的完整性核验。
+- Ledger Artifact 不替代 `<state-file>` 中的节点账本；Main 提交 State_Patch 后，节点账本以 `<state-file>` 为准。
+
+#### 3.5.6 Judge 直接裁决通道（Judge Direct Verdict Channel）
+
+- Judge 独立于 Coordinator；Judge 裁决直接送达 Main，Coordinator 不得拦截、过滤或预判 Judge 的裁决结论。
+- Judge 可直接读取 `<state-file>`、所有产物文件与 Coordinator Ledger Artifact，无需经过 Coordinator 中转。
+- Main 在收到 Judge PASS/FAIL 裁决后，按第 9 节执行归档门控；Coordinator 在此阶段进入只读等待状态。
+
+#### 3.5.7 Main 最小状态写入原则（Main Minimal State Writes）
+
+- Delegation 激活期间，Main 的状态写入应保持最小化：只写入 Coordinator Package 验收结果、Progressive Unlock 更新、以及必要的生命周期字段变更。
+- Main 不因 Coordinator 内部的每一条 EXE/DBG 微粒事件触发状态写入；只有 Stage Package 或 Final Coordinator Package 被验收后，Main 才执行对应的串行 State_Patch 提交。
+- 此原则不影响 Main 对任何节点的直接介入权：若 Main 判断需要直接干预（如熔断、撤销委托、紧急重试），可随时恢复全量调度模式并直接写入状态。
+
+#### 3.5.8硬性约束保留
+
+以下约束在 V5.6 下保持不变，Coordinator 模型不得绕过：
+- MAM_state 硬性后置写入门控（见第 0 节）
+- task_folder 与 MAM 读取前置门控（见第 0、9.3 节）
+- EXE 验收边界禁止（见第 3.0 节第 4 条）
+- Judge 一次性门禁（见第 9.2 节）
+- Worker `State_Patch` 必须经 Main 校验后串行提交（见第 5.1 节）
 
 ## 4. 调度原则
 

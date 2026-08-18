@@ -1,4 +1,4 @@
-# 🚀 OpenClaw 多 Agent 矩阵协作系统全局架构方案 (v5.5)
+# 🚀 OpenClaw 多 Agent 矩阵协作系统全局架构方案 (v5.6)
 
 ---
 
@@ -18,6 +18,7 @@
 
 1. **Main 单写状态中心 (Main-Only State Authority)**
    `<workspace>/state.md` 是任务的唯一主状态总线。仅 Main 可物理写入、更新、重置或归档；Researcher、Executor、Debugger、Judge、Claude Code 与 Codex 均只读总线，完成后向 Main 返回 `WORKER_COMPLETED` 回执及建议的 `State_Patch`。Main 验证后串行提交，Worker 可并行计算。协议不依赖 Worker Revision、CAS 或文件锁。
+   **Main 职责边界**：Main 的专属职责是 `state.md` 初始化与更新、DAG 构建与调度、Assignment 绑定、回执验收与串行状态写入、归档与最终说明。Main 不得在自身 Session 内代替 Researcher 产出研究结论、代替 Executor 生成实现产物、代替 Debugger 做独立质检，或代替 Judge 做最终裁决。
 2. **职责解耦与隔离 (Decoupling & Isolation)**
    每个 Assignment 绑定独立 Session/Run、明确文件范围和验收标准。并行 Executor 使用独立工作树、分支、补丁或产物目录，不能直接争用同一工作树。
 3. **摘要与证据驱动 (Summary & Evidence Driven)**
@@ -54,7 +55,7 @@
 
 ### 1. 任务初始化与分流 (Initialization & Triage)
 
-Main 由 `New_Task_Flag = TRUE` 或用户新请求识别新任务，不得仅因 `Status = COMPLETED` 推断新任务。Main 确定 `<task_folder>`；FULL 任务在评分与拆分前读取 `<task_folder>/MAM_state.md`（若存在），但 MAM 不恢复运行节点、Assignment 或 Session。
+Main 由 `New_Task_Flag = TRUE` 或用户新请求识别新任务，不得仅因 `Status = COMPLETED` 推断新任务。Main 确定 `<task_folder>`；**FULL 任务在评分与拆分前必须读取 `<task_folder>/MAM_state.md`（若存在）**，但 MAM 只提供长期规划上下文，不恢复运行节点、Assignment 或 Session，也不替代当前任务的研究与评分。
 
 **硬覆盖规则优先于评分：**
 
@@ -78,7 +79,7 @@ Main 由 `New_Task_Flag = TRUE` 或用户新请求识别新任务，不得仅因
 | 研究与需求不确定性 | `+1` |
 | 长时运行与恢复敏感 | `+1` |
 
-阈值：`0–2 → MAIN_ONLY`；`3–5 → MINIMAL`；`≥6 → FULL`。MAIN_ONLY 由 Main 直接处理并做风险匹配的最小验证；MINIMAL 至少分配 1 个子 Agent，按风险决定 Debugger/Judge，不强制两层 DAG但必须记录 Assignment 与验收；FULL 强制拆分、两层 DAG、Debugger 与 Judge，Main 不得在自身 Session 代做完整专家工作。
+阈值：`0–2 → MAIN_ONLY`；`3–5 → MINIMAL`；`≥6 → FULL`。MAIN_ONLY 由 Main 直接处理并做风险匹配的最小验证；MINIMAL 至少分配 1 个子 Agent，按风险决定 Debugger/Judge，不强制两层 DAG但必须记录 Assignment 与验收；FULL 强制拆分、两层 DAG、Debugger 与 Judge，Main 不得在自身 Session 代做完整专家工作。**FULL 任务必须先显式建立并保留 Research DAG，待 RES 节点 PASS 后再通过 `DAG_Update` 增量建立 Delivery DAG；禁止跳过 Research DAG 直接进入 Delivery DAG。**
 
 FULL 的 Researcher 数量：`6–7` 分为 1 个，`8–10` 分为 2 个并行，`≥11` 分为 3 个并行。跨专业、争议方案、高风险多路径或用户要求可上调但不超过 3；低于建议数量须记录原因。
 
@@ -211,7 +212,7 @@ Delivery DAG:  EXE-* → DBG-* → INTEGRATION(按需) → REGRESSION(按需) �
 
 Researcher 可按需求与边界、技术方案与接口、风险与验收分工。Main 每收到一个有效研究回执就串行写入 Research DAG，并判断是否可通过 `DAG_Update` 提前解锁 Delivery 节点，无需等待同批全部完成。节点派发必须同时满足：用户策略允许、Assignment 已绑定、能力画像通过 hard-filter、预算与并发未超限、证据等级满足该节点最低要求。
 
-Delivery DAG 至少明确实现依赖、Executor 产物路径、`executor_type`、对应 Debugger、并行/串行关系、Integration 是否需要、集成回归范围和 Judge 条件。Main 仅调度依赖满足的 READY 节点，使用真实注册 Agent ID 和独立 Session；采用推送式完成事件，不忙轮询。
+Delivery DAG 至少明确实现依赖、Executor 产物路径、`executor_type`、对应 Debugger、并行/串行关系、Integration 是否需要、集成回归范围和 Judge 条件。Main 仅调度依赖满足的 READY 节点，使用真实注册 Agent ID 和独立 Session；采用推送式完成事件，不忙轮询。**交付扇出规则**：RES PASS 后，若多个交付工作之间无依赖关系，必须拆分为独立的并行 EXE 节点同波次派发，禁止将独立交付工作串行合并到单一 EXE 节点。
 
 `DAG_Update` 由 Main 增量维护，不整体重写，最小结构如下：
 
@@ -267,7 +268,7 @@ Main 拒绝 Task/Subtask/当前 Assignment 不匹配、Agent/Session/Run 不匹�
 
 每个 Assignment 记录 `Result_Accepted` 与 `Result_Digest`：首次有效完成才接受；同 Assignment 已接受且 Digest 相同，记录 `Duplicate_Event_Ignored`，不写入、不解锁；Digest 不同标记 `RESULT_CONFLICT`，拒绝覆盖并保留冲突证据；旧 Attempt 迟到标记 `LATE_RESULT`，默认不写入、不改变节点，仅保留诊断摘要。
 
-**Executor 隔离与集成：** 每个 Executor 使用 `<task_folder>/artifacts/<subtask-id>/` 或独立工作树/分支/patch；并行 Executor 不得直接改同一工作树。完成回执后停止修改、退出运行并释放工具会话。多产物合并时建立 Integration 节点；全部相关 Executor 完成并退出后，集成者才取得 `<task_folder>/artifacts/INTEGRATION/` 或目标集成范围的独占修改权。前序 Executor 不得再修改，后续修复创建新 Assignment/节点。Integration 后运行跨模块接口、构建和整体行为回归。
+**Executor 隔离与集成：** 每个 Executor 使用 `<task_folder>/artifacts/<subtask-id>/` 或独立工作树/分支/patch；并行 Executor 不得直接改同一工作树。完成回执后停止修改、退出运行并释放工具会话。**EXE 验证边界**：EXE 节点只能做本地完成性检查（如编译通过、冒烟测试、产物存在），并将结果仅作为执行证据（execution evidence）写入回执。**EXE 不得将任何自运行结果标注为 acceptance、QA、validation、PASS gate 或 final verification；此类标注无效且视为越权。** 独立的最终接受验证由 DBG 节点完成，EXE 不得替代 DBG 角色。多产物合并时建立 Integration 节点；全部相关 Executor 完成并退出后，集成者才取得 `<task_folder>/artifacts/INTEGRATION/` 或目标集成范围的独占修改权。前序 Executor 不得再修改，后续修复创建新 Assignment/节点。Integration 后运行跨模块接口、构建和整体行为回归。
 
 实现冲突先受用户要求、安全边界和冻结接口约束；不合规方案直接淘汰。其余按 Main 在任务开始时记录的动态 `Model_Capability_Order`（Tier 1/2/3）仲裁：高能力等级优先，低等级可补充但不可覆盖；同等级交 Judge。Integration 记录双方、模型等级、采用方案和理由。
 
@@ -285,10 +286,10 @@ Judge 独立核验：交付与验收标准、必要测试、节点证据、Assig
 
 ### 7. 自动归档 (Automatic Archiving)
 
-Judge `PASS` 后，Main 按以下顺序执行，且每个 Task 最多更新一次 MAM：
+Judge `PASS` 后、归档或重置前，Main 必须按以下顺序执行，且每个 Task 恰好更新一次 MAM：
 
-1. 检查 `<task_folder>/MAM_state.md` 的 `Last_Completed_Task_ID`；相同则跳过写入。
-2. 读取旧 MAM（若存在），从最终状态、产物和验收证据提炼长期有效内容，去重并移除过时内容。
+1. 检查 `<task_folder>/MAM_state.md` 的 `Last_Completed_Task_ID`；相同则跳过写入（幂等保护）。
+2. 读取旧 MAM（若存在），从最终状态、产物和验收证据提炼长期有效内容，去重并移除过时内容。**MAM 只记录跨任务长期有效的规划记忆；不得写入活跃节点状态、Session/Run/Assignment 标识、调度器状态或任何瞬态执行证据。**
 3. 写入并回读验证 MAM；仅回读成功后设置 `MAM_Update_Status = PASS`。
 4. 原子、幂等归档当前 `state.md` 至 `<workspace>/history/<task-id>/`，记录路径与校验和。
 5. 仅在归档成功且 MAM 门禁通过后重置 `state.md`，再向用户报告。
@@ -305,7 +306,27 @@ MAM 写入或回读失败会阻止清空/重置状态；Main 先修复，无法�
 
 ## 五、 OpenClaw 实施 (Implementation)
 
-### 1. 目录结构
+### 1. 路径占位符定义 (Path Placeholder Definitions)
+
+本协议使用以下占位符；发布文档不得将其替换为实际主机路径或私有标识。
+
+| 占位符 | 含义 |
+|---|---|
+| `<workspace>` | OpenClaw 全局工作区根目录；`state.md` 与 `history/` 均位于此目录下。 |
+| `<project-root>` | 当前项目的代码仓库或顶级目录；提示词、配置等项目级资产放于此处。 |
+| `<task_folder>` | 当前任务的最小稳定工作根目录（见下方详细说明）。 |
+| `<state-file>` | 任务状态总线文件，固定为 `<workspace>/state.md`。 |
+
+**`<task_folder>` 详细说明**
+
+`<task_folder>` 是当前任务的最小稳定工作根目录，用于承载：任务产物（`artifacts/`）、`MAM_state.md`、任务内相对路径引用，以及任务级归档上下文。
+
+- **选择原则**：Main 必须在任务初始化时显式选择并在 `state.md` 的 `[0] Signals` 中记录 `Task_Folder`，以及选择理由（`Task_Folder_Reason`）。
+- **与 `<project-root>` 的关系**：`<task_folder>` *可以*等于 `<project-root>`，但**不得默认等于 `<project-root>`**。仅当任务真正跨越整个项目时方可令二者相等，且必须写明理由。
+- **典型区分示例**：`<project-root>` 可以是整个 monorepo（如 `my-repo/`），而同一任务的 `<task_folder>` 可以是其中一个子模块（如 `my-repo/services/auth/`）；前者是项目边界，后者是本次任务的实际工作范围。
+- **禁止行为**：不得将 `<task_folder>` 省略、隐式继承或在任务中途静默更改；变更须通过新 Assignment 明确授权。
+
+### 2. 目录结构
 
 ```text
 <workspace>/state.md
@@ -332,6 +353,8 @@ MAM 写入或回读失败会阻止清空/重置状态；Main 先修复，无法�
 - **Model_Capability_Order**: `<dynamic tiers>`
 - **Model_Discovery_Provenance**: `<sources-and-evidence>`
 - **MAM_Update_Status**: `PENDING`
+- **Task_Folder**: `<task_folder>`
+- **Task_Folder_Reason**: `<why this folder was chosen as task root; may equal project-root only when task truly spans the whole project>`
 
 ## 📈 [1] 调度计划 (Dispatch Plan)
 ### Research DAG
@@ -715,4 +738,199 @@ for assignment in ready_assignments:
 - `<next-starting-point>`
 ```
 
-MAM 不得包含完整聊天/状态副本、全量 DAG、调度与重试流水、大日志、临时 Session/Run/Assignment、失效重复决定或凭证。写后验证文件可读、固定章节齐全、`Last_Completed_Task_ID` 匹配、无敏感信息/运行日志，且足以回答项目现状、原则边界、近期变更、可用证据与下一步。
+MAM 不得包含完整聊天/状态副本、全量 DAG、调度与重试流水、大日志、临时 Session/Run/Assignment 标识、活跃节点状态、调度器状态、瞬态执行证据、失效重复决定或凭证。写后验证文件可读、固定章节齐全、`Last_Completed_Task_ID` 匹配、无敏感信息/运行日志，且足以回答项目现状、原则边界、近期变更、可用证据与下一步。
+
+---
+
+## 六、 V5.6 架构升级：Coordinator/Integration 运行时调度模型 (V5.6 Upgrade: Coordinator/Integration Runtime Orchestration)
+
+> **版本标记**：本章为 v5.5 → v5.6 增量升级规范。所有 v5.5 条款（一至五章）继续有效；本章仅在其上新增或明确 Coordinator/Integration 运行时调度层的职责、边界与协议。
+
+---
+
+### 6.1 升级动因与核心目标 (Motivation & Goals)
+
+v5.5 中 Main 既是唯一状态写入者，又需逐节点跟进 Delivery 阶段的波次派发、重试仲裁与产物汇总，导致 Main 上下文消耗过高，且调度细节与状态主权职责耦合。
+
+v5.6 目标：
+- **Main 保留状态主权**，但将 Delivery 阶段的运行时编排权有界授权给 Coordinator/Integration 角色。
+- 引入 **Delegated_Runtime_Authority**（有界、可撤销的运行时编排授权），使 Coordinator 可在授权范围内独立驱动波次、处理局部重试、汇总阶段产物，无需每步回报 Main。
+- 引入 **Stage Package / Final Coordinator Package**、**Coordinator Ledger Artifact** 与 **Judge Direct Verdict Channel**，使 Main 只需在关键节点（授权、包接受、归档）介入，而非参与每一节点调度。
+- 保留 EXE 证据边界、MAM 读写门禁、两级熔断与 Judge 独立裁决等全部 v5.5 护栏。
+
+---
+
+### 6.2 Main 状态主权边界（v5.6 精化）(Main State Sovereignty)
+
+v5.6 中 Main 的专属职责精化为以下最小必要集，不得再扩展：
+
+| 职责 | 说明 |
+|---|---|
+| **`<state-file>` 初始化** | 任务开始时写入 Signals、Research DAG 骨架与契约 |
+| **授权边界设定** | 为每个 Assignment 绑定 Agent ID、Scope、Acceptance；发布 `Delegated_Runtime_Authority` |
+| **Research 回执验收与串行写入** | 接受 RES Worker 回执，串行写入 Blackboard，触发 DAG_Update |
+| **Coordinator Package 接受** | 在 Delivery 阶段结束时接受 Final Coordinator Package，串行写入状态 |
+| **Judge 裁决写入** | 接受 Judge Direct Verdict，写入 `[4] Evaluation` |
+| **MAM 更新与归档** | 按 v5.5 第 7 步门禁，Judge PASS 后更新 MAM、归档、重置 |
+| **熔断升级决策** | 当 Coordinator 上报熔断事件时，Main 决定退回 Researcher 还是 WAITING_USER |
+
+**Main 在 Delivery 阶段不再逐节点派发 EXE/DBG；此职责委托给 Coordinator。** Main 只在收到 Final Coordinator Package 时做一次完整验收写入。
+
+**Main 不得因 Coordinator 存在而放弃状态主权**：Coordinator 没有 `<state-file>` 写权限，所有状态变更仍须经 Main 串行提交。
+
+---
+
+### 6.3 Delegated_Runtime_Authority（有界运行时编排授权）
+
+`Delegated_Runtime_Authority` 是 Main 在 Research PASS 且 Delivery Plan 通过验收后，向 Coordinator/Integration 发布的有界、可撤销授权记录，内容至少包含：
+
+```markdown
+## Delegated_Runtime_Authority
+- **Task_ID**: `<task-id>`
+- **Granted_To**: `<coordinator-agent-id>`
+- **Granted_At**: `<timestamp>`
+- **Scope**: `Delivery DAG 运行时编排；EXE/DBG 节点波次派发；局部重试（上限 Attempt 3）；产物汇总与 Stage Package 生成`
+- **Forbidden**: `写入 <state-file>；修改 Research DAG；扩展授权范围；替代 Judge 裁决；替代 Main 的 Package 接受；超出已授权文件范围`
+- **Revocation_Condition**: `熔断触发（Attempt 4 同根因失败）；Coordinator 越权行为；Main 显式撤销`
+- **Expires_On**: `Final Coordinator Package 被 Main 接受，或任务终止`
+```
+
+`Delegated_Runtime_Authority` 记录在 `state.md` 的 `[1] 调度计划` 中，并在 Coordinator Ledger Artifact 中引用。Coordinator 不得自行修改或扩展该授权。
+
+---
+
+### 6.4 Coordinator/Integration 运行时调度职责
+
+Coordinator（可复用 Integration 角色实例担任）在 `Delegated_Runtime_Authority` 有效期内负责：
+
+1. **波次派发（Wave Dispatch）**：按 Delivery DAG 拓扑，将 READY EXE 节点同波次派发给对应 Executor Agent；依赖未满足的节点保持 `BLOCKED_BY_DEPENDENCY`。
+2. **局部重试仲裁（Local Retry Arbitration）**：在授权范围内对 FAIL 节点执行最多 Attempt 1→3 的重试；Attempt 4 同根因失败时停止，生成熔断事件并上报 Main，不得自行扩展重试次数。
+3. **产物汇总与冲突仲裁（Artifact Aggregation & Conflict Resolution）**：按 v5.5 第 4 步的 `Model_Capability_Order` 仲裁实现冲突；记录双方、模型等级、采用方案和理由。
+4. **Stage Package 生成（Stage Package Reporting）**：每个 Delivery 波次结束后生成 Stage Package，记录本波次产物路径、证据摘要、节点状态与局部重试记录。
+5. **Final Coordinator Package 生成**：全部 EXE/DBG/Integration/Regression 节点 PASS 后，汇总所有 Stage Package，生成 Final Coordinator Package 并提交 Main 接受。
+6. **Coordinator Ledger Artifact 维护**：全程维护一份不可变的调度台账（Ledger），记录每次波次派发、重试、产物汇总与冲突决策，供 Judge 和 Main 审计。
+
+**Coordinator 不得执行的操作：**
+- 物理写入 `<state-file>`
+- 扩展 `Delegated_Runtime_Authority` 的授权范围
+- 替代 Main 做 Package 接受或 Assignment 绑定
+- 替代 Judge 做最终裁决
+- 在熔断后自行扩展重试或绕过 Main 决策
+
+---
+
+### 6.5 Stage Package 与 Final Coordinator Package 规范
+
+**Stage Package**（每波次结束时生成，保存在 `<task_folder>/artifacts/COORDINATOR/stage-<n>.md`）：
+
+```markdown
+## Stage Package — Wave <n>
+- **Task_ID**: `<task-id>`
+- **Wave**: `<n>`
+- **Nodes**: `<node-id-list>`
+- **Status_Summary**: `<PASS/FAIL/PARTIAL>`
+- **Artifacts**: `<path-list>`
+- **Evidence_Summary**: `<brief>`
+- **Retry_Log**: `<attempt-summary-per-node>`
+- **Conflicts_Resolved**: `<conflict-summary-or-none>`
+- **Generated_At**: `<timestamp>`
+```
+
+**Final Coordinator Package**（全部 Delivery 节点结束时生成，保存在 `<task_folder>/artifacts/COORDINATOR/final-package.md`）：
+
+```markdown
+## Final Coordinator Package
+- **Task_ID**: `<task-id>`
+- **Coordinator_Agent_ID**: `<agent-id>`
+- **Delegated_Runtime_Authority_Ref**: `<dra-record-ref>`
+- **Stage_Packages**: `<stage-package-path-list>`
+- **All_Nodes_Status**: `<node-id: PASS/FAIL list>`
+- **Unresolved_Failures**: `<list-or-none>`
+- **Artifact_Index**: `<final-artifact-path-list>`
+- **Coordinator_Ledger_Ref**: `<ledger-path>`
+- **Ready_For_Judge**: `TRUE | FALSE`
+- **Generated_At**: `<timestamp>`
+```
+
+Main 在接受 Final Coordinator Package 时，按 v5.5 第 4 步的回执验证流程检查：产物存在、节点状态完整、无未解决熔断、Ledger 可读。验证通过后串行写入 `state.md` 对应章节，并解锁 Judge。
+
+---
+
+### 6.6 Coordinator Ledger Artifact
+
+Coordinator Ledger 是 Delivery 阶段的不可变调度台账，保存在 `<task_folder>/artifacts/COORDINATOR/ledger.md`，记录：
+
+- 每次波次派发：时间、节点列表、分配的 Agent ID 与 Session Key
+- 每次局部重试：节点 ID、Attempt、根因签名、结果
+- 每次产物汇总：冲突描述、模型等级、采用方案
+- 熔断事件（若有）：节点 ID、根因、上报 Main 的时间戳
+- `Delegated_Runtime_Authority` 引用：授权记录位置与版本
+
+Ledger 只允许追加，不得覆盖历史记录。Judge 和 Main 在验收时均可直接引用 Ledger 作为调度证据。
+
+---
+
+### 6.7 Judge Direct Verdict Channel
+
+在 v5.6 中，Judge 在完成独立核验后，通过 **Judge Direct Verdict Channel** 直接向 Main 提交裁决回执，格式与 v5.5 `WORKER_COMPLETED` 回执兼容，但新增以下字段：
+
+```json
+{
+  "coordinator_package_ref": "<final-coordinator-package-path>",
+  "coordinator_ledger_ref": "<ledger-path>",
+  "delegated_runtime_authority_ref": "<dra-record-ref>",
+  "verdict": "PASS | REJECTED",
+  "critical_issues": [],
+  "gate_checks": {
+    "all_exe_dbg_pass": true,
+    "integration_regression_pass": true,
+    "no_unresolved_failures": true,
+    "coordinator_package_valid": true,
+    "ledger_auditable": true,
+    "artifacts_exist": true,
+    "security_boundary_intact": true
+  }
+}
+```
+
+Main 接受 Judge Direct Verdict 后，按 v5.5 第 6 步门禁写入 `[4] Evaluation`，并触发 MAM 更新与归档流程。
+
+**Judge 核验范围在 v5.6 中扩展为包含：**
+- Final Coordinator Package 完整性与 Ready_For_Judge = TRUE
+- Coordinator Ledger Artifact 可读性与关键记录完整性
+- `Delegated_Runtime_Authority` 未被越权使用
+- 所有 v5.5 第 6 步的原有门控条件
+
+---
+
+### 6.8 Main Minimal State Writes（v5.6 最小写入集）
+
+在引入 Coordinator 后，Main 的 `state.md` 写入操作精简为以下必要集：
+
+| 写入时机 | 写入内容 |
+|---|---|
+| 任务初始化 | `[0] Signals`、`[1]` Research DAG 骨架、`[2]` 契约 |
+| RES Worker 回执验收后 | `[2]` Research Blackboard 对应章节；`[1]` 节点状态更新；DAG_Update |
+| Delivery Plan 通过后 | `[1]` Delivery DAG 骨架；`Delegated_Runtime_Authority` 记录 |
+| Final Coordinator Package 接受后 | `[2]` EXE-ARCH/EXE-PROMPT/EXE-MAM 节点状态；产物索引摘要 |
+| Judge Direct Verdict 接受后 | `[4] Evaluation`；`[1] JUDGE` 节点状态 |
+| MAM 更新 + 归档后 | `[5] Archive`；`[0] Status = COMPLETED`；重置 |
+| 熔断上报后 | `[1]` 熔断节点状态；`[2]` 熔断事件摘要；触发 Researcher 或 WAITING_USER |
+
+Main 不得在 Delivery 阶段写入每个 EXE/DBG 节点的逐步调度记录；此类细节由 Coordinator Ledger 承载。
+
+---
+
+### 6.9 v5.5 护栏的继承与保留
+
+以下 v5.5 机制在 v5.6 中**完整保留，不受 Coordinator 委托影响**：
+
+- **`<task_folder>` 定义与选择原则**（五章第 1 节）：Coordinator 不得修改 Task_Folder。
+- **EXE 证据边界**：EXE 节点的执行证据只能作为 execution evidence 写入回执；Coordinator 汇总时不得将其升格为 acceptance 或 QA gate。
+- **MAM 读写门禁**：MAM 仍仅在 Judge PASS 后、由 Main 更新一次；Coordinator 不得触发 MAM 写入。
+- **两级熔断**：Coordinator 执行第一级（执行链重试 Attempt 1→3）；Attempt 4 同根因失败后上报 Main，由 Main 决定是否触发第二级（退回 Researcher）。Coordinator 不得自行启动第二级熔断。
+- **Judge 独立裁决**：Coordinator 不得替代 Judge，不得在 Final Coordinator Package 中声称已完成裁决。
+- **Worker 只读 `state.md`**：Coordinator 同样只读 `state.md`，所有状态变更通过回执与 State_Patch 提交 Main。
+- **DAG_Update 幂等性**：Coordinator 如需建议 DAG 变更，须在 Stage Package 或 Final Package 中以 `proposed_dag_updates` 字段提交 Main 决策，Main 串行应用后方生效。
+- **并行 Executor 隔离**：并行 EXE 节点仍使用独立产物目录，Coordinator 不得打破隔离边界。
+- **配置后运行时验收**（五章第 8 节）：Coordinator 角色的引入不豁免运行时验收要求；Coordinator 本身的 Assignment 绑定、Session 可见性与授权范围须通过同等验收。
