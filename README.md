@@ -8,7 +8,7 @@
 
 [![OpenClaw](https://img.shields.io/badge/Powered%20by-OpenClaw-blueviolet)](https://github.com/OpenClaw/OpenClaw)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-v5.0--Stable-orange)](https://github.com/)
+[![Status](https://img.shields.io/badge/Status-v5.5--Stable-orange)](https://github.com/)
 
 ## 🌟 项目简介
 
@@ -18,37 +18,41 @@
 
 ---
 
-## 🧠 核心设计理念（v5.0 协议）
+## 🧠 核心设计理念（v5.5 协议）
 
-1. **状态集中化（`state.md`）**：智能体之间不进行直接通信。所有信息流通过单一的结构化 Markdown 文件流转，确保"单一可信源"。
-2. **严格沙盒隔离**：每个智能体（研究员、执行者、调试员）在其独立的 OpenClaw 会话中运行，保持"干净"的上下文，专注于各自的职责。
-3. **摘要驱动执行**：智能体必须输出结构化摘要。主控制器仅根据这些摘要做出路由决策，从而大幅节省 Token 消耗并减少幻觉。
-4. **生命周期自动化**：从新任务检测（通过 `New_Task_Flag`）到 Judge PASS 后的自动内部归档，系统自主管理完整的任务生命周期，仅在破坏性/不可逆/外部/隐私敏感操作时才需用户确认。
-5. **运行时可验证调度**：Agent 注册、角色提示词（`.md` 格式）和工作区文件只代表静态配置完成。Main 必须按照 `Dispatch Plan` 真正调用被分配的子 Agent，为其创建独立 Session，并验证结果已回写同一份 `state.md`。
+1. **Main 单写状态中心**：`state.md` 是任务的唯一主状态总线。仅 Main 可物理写入、更新、重置或归档；所有 Worker（Researcher、Executor、Debugger、Judge）均只读总线，完成后向 Main 返回 `WORKER_COMPLETED` 回执及建议的 `State_Patch`。Main 验证后串行提交，Worker 可并行计算。
+2. **严格沙盒隔离**：每个 Assignment 绑定独立 Session/Run、明确文件范围和验收标准。并行 Executor 使用独立工作树、分支或产物目录，不能直接争用同一工作树。
+3. **摘要与证据驱动**：状态总线只存状态、摘要、证据索引和 Digest；大产物与日志放在任务文件夹，敏感信息不得进入回执或状态。
+4. **渐进式两层 DAG**：FULL 模式先建立 Research DAG，再随已验证研究结果通过 `DAG_Update` 增量建立 Delivery DAG；部分研究完成即可安全解锁无争议节点。
+5. **动态模型发现与按 Assignment 分配**：从部署时实际可用模型动态发现并建立能力画像，按每个 Assignment 的需求向量匹配，高能力/高价模型只用于高杠杆节点，轻量模型优先覆盖研究、格式校验与低风险执行，从而节省 Token 与成本。
+6. **两级重试与熔断**：失败先进行最多 3 次执行链重试，再退回 Researcher 进行最多 3 次实质修订；不影响无依赖链路。
+7. **生命周期自动化**：从 `New_Task_Flag` 检测新任务，到 Judge `PASS` 后自动归档与重置，系统自主管理完整生命周期，仅在破坏性/不可逆/外部/隐私敏感操作时才需用户确认。
+8. **运行时可验证调度**：静态配置不等于已启用。配置后必须真实调用非 Main 子 Agent，以 Assignment、Session/Run、回执和 Main 写入证据证明调度有效。
 
 ---
 
 ## 🏗️ 矩阵角色定义
 
-| 角色组 | ID | 职责 | 关键产出 |
-| :--- | :--- | :--- | :--- |
-| **主控制器** | `Main` | 全局路由、DAG 调度与用户交互 | 调度指令 & 状态更新 |
-| **研究池** | `Res_1~2` | 技术调研、架构设计与执行手册编写 | **执行手册** |
-| **执行池** | `Exe_1~2` | 代码实现、环境搭建与部署 | **最终交付物** |
-| **调试池** | `Dbg_1~3` | 逻辑、边界与性能验证 | **调试报告 / 日志** |
-| **仲裁员** | `Judge` | 汇总调试报告并进行最终评估 | **评估结果 / 裁决** |
+| 角色组 | ID | 职责 | 状态权限 | 关键产出 |
+| :--- | :--- | :--- | :--- | :--- |
+| **调度中心 (Main)** | `main` | 分流评分、两层 DAG、Assignment、回执验证、串行状态写入、归档 | 唯一可写 `state.md` | 状态、调度与验收记录 |
+| **研究池 (Researcher)** | `res_1~3` | 需求/边界、方案/接口、风险/验收研究 | 只读 | 研究结果、`State_Patch` |
+| **执行池 (Executor)** | `exe_1~3` | 隔离实现、工具执行、测试与产物生成 | 只读状态；仅改授权产物 | 产物、证据、`State_Patch` |
+| **调试池 (Debugger)** | `dbg_1~3` | 逻辑、边界、性能、安全与回归检查 | 只读 | 质检回执、`State_Patch` |
+| **集成角色 (Integration)** | 动态节点 | 独占集成产物、冲突仲裁、合并与回归 | 只读状态；独占集成范围 | 集成产物与回执 |
+| **仲裁员 (Judge)** | `judge` | 独立完成门控与最终裁决 | 只读 | `PASS/REJECTED` 回执 |
 
-> 默认启用 `res_1~2` 与 `exe_1~2`（池子可按需扩展到 `_3`：在 `openclaw.json` 的 `agents.list` 中新增同名条目，并在 `workspace/agents/` 下创建对应目录）。
+各职能池并发上限：Researcher 最多 3；Executor 最多 3；Debugger 最多 3；同一集成产物仅 1 个有效 Integration 节点；Judge 默认 1 个实例。实际并发为 READY 节点数、可用 Agent 数、池上限三者最小值。
 
 ---
 
 ## 🚀 快速上手与自举配置
 
-本项目最强大之处在于其**自动配置**能力。按以下步骤让系统自行完成构建：
-
 ### 1. 前置条件
+
 - 确保已安装 [OpenClaw](https://github.com/OpenClaw/OpenClaw) 并完成 LLM API 配置。
-- 准备项目目录：
+- 克隆仓库：
+
 ```bash
 git clone https://github.com/WEI-6/OpenClaw-Multi-Agent-Matrix.git
 cd OpenClaw-Multi-Agent-Matrix
@@ -56,76 +60,68 @@ cd OpenClaw-Multi-Agent-Matrix
 
 ### 2. 配置 OpenClaw 会话映射
 
-参考 [`openclaw.json.example`](./openclaw.json.example)（真实 OpenClaw 配置格式，含全部 9 个 Agent 的 `agents.list` 条目与 workspace 映射），复制为自己的 `openclaw.json` 并替换占位符：
+参考当前 OpenClaw 文档，在 `openclaw.json` 中为各角色（`main`、`res_1`、`res_2`、`exe_1`、`exe_2`、`dbg_1`、`dbg_2`、`dbg_3`、`judge`）添加 `agents.list` 条目，并为每个子 Agent 指定独立的 workspace 路径。
 
-```bash
-cp openclaw.json.example ~/.openclaw/openclaw.json
-```
-
-> ⚠️ 各子 Agent 的 workspace 必须存在：`workspace/agents/{res_1,res_2,exe_1,exe_2,dbg_1,dbg_2,dbg_3,judge}/`（仓库已内置各角色的 `AGENTS.md` 提示词）。
+> ⚠️ 配置格式以当前安装版本的 OpenClaw schema 为准；仅使用 OpenClaw 支持的配置字段。
 
 ### 3. 自举启动指令
-启动 OpenClaw 会话后，向 **Main Agent** 发送以下指令：
 
-> *"请读取并解析根目录下的 `Architecture_v5.0.md` 文件。根据此文档，自主配置我的 OpenClaw Matrix 会话、初始化 `state.md` 总线、注入各角色专属提示词，并进入新任务的 INIT 状态。"*
+完成上面的 OpenClaw 会话映射后，向 **Main Agent** 发送以下指令，让 Main 按 v5.5 协议初始化并执行一次可验证的自举流程：
 
-**系统将自动完成：**
-- 注册所有 Agent ID 与 Session ID。
-- 从 `/prompts` 目录为每个角色注入专属提示词。
-- 在工作区生成 `state.md` 模板（可参考 [`workspace/state.md.example`](./workspace/state.md.example)）。
-- 监听 `New_Task_Flag` 以启动执行流程。
-- 为 Main 开启受限的子 Agent 调度权限，并仅允许调用已注册的 Matrix 角色。
-- 配置完成后执行一次运行时验收，确认子 Agent 的独立 Session、共享黑板读写和结构化回执均真实生效。
+> *"请读取并解析根目录下的 `Architecture_v5.5.md` 文件。根据此文档，检查我的 OpenClaw Matrix 会话配置，初始化 `state.md` 总线，按 `/prompts` 中的角色提示词建立调度约束，并进入新任务的 INIT 状态。"*
 
-### 3. 运行时调度验收
+**Main 应按协议完成或核验：**
+- 核验已配置的 Agent ID、Session 映射与可用模型，并将模型发现结果绑定到具体 Assignment。
+- 确认各角色已在 OpenClaw 配置中使用 `/prompts` 目录下的专属提示词（`main.md`、`res.md`、`exe.md`、`dbg.md`、`judge.md`）。
+- 在工作区初始化或检查 `state.md` 任务总线模板。
+- Main 在每轮读取 `state.md` 时按协议处理 `New_Task_Flag`；OpenClaw 本身不因文件存在而自动轮询或启用 Matrix。
+- 核验 Main 具备已配置的受限子 Agent 调度权限；权限与 allowlist 需由 OpenClaw 配置提供，不能由读取架构文档自动授予。
+- 配置完成后，由 Main 发起一次运行时验收，确认子 Agent 的独立 Session、Main 单写状态总线和结构化回执均真实生效。
 
-仅生成角色名单、提示词、工作区和配置文件，**不代表 Matrix 已经投入运行**。如果没有真实的子 Agent Session 和共享黑板写回，系统仍然只是静态部署，并未启用运行时调度器。
+### 4. 运行时调度验收
+
+仅生成角色名单、提示词和配置文件，**不代表 Matrix 已经投入运行**。没有真实的子 Agent Session 和共享黑板写回，系统仍然只是静态部署。
 
 配置完成后，Main Agent 必须执行一次最小验收任务：
 
 1. 在 `state.md` 中创建唯一 `Task_ID`，写入明确的 `[Dispatch Plan]`。
-2. 按计划真实调用至少一个非 Main 子 Agent，而不是由 Main 模拟该角色输出。
-3. 确认该角色运行在独立 Session 中，并记录实际的 Agent ID、Session ID 或 Run ID。
-4. 子 Agent 必须先读取同一绝对路径下的 `state.md`，再仅向其授权章节写入结构化结果。
-5. Main 再次读取 `state.md`，确认 `Task_ID` 一致、文件修改时间已更新且角色结果真实存在。
-6. 由 Judge 或 Main 对以上证据给出 `PASS / FAIL` 结论；任一证据缺失均视为运行时调度未启用。
+2. 按计划真实调用至少一个非 Main 子 Agent（不得由 Main 模拟角色输出）。
+3. 确认该角色运行在独立 Session 中，记录实际的 Agent ID、Session ID 或 Run ID。
+4. 子 Agent 只读 `state.md`，完成后仅向其授权章节返回 `WORKER_COMPLETED` 回执与 `State_Patch`，不直接写入总线。
+5. Main 校验回执、重算 `result_digest`，验证通过后串行写入 `State_Patch`。
+6. Judge 独立读取证据并返回 `PASS / FAIL` 裁决；任一证据缺失均视为运行时调度未启用。
 
-验收至少应同时满足以下条件：
-
+验收至少应同时满足：
 - `state.md` 中存在当前任务的唯一 `Task_ID` 和最近更新时间。
 - 至少一个已分配的非 Main Agent 存在真实 Session / Run。
-- 子 Agent 回执中的 `Task_ID` 与共享黑板一致。
-- 子 Agent 的结果已经写入同一份共享黑板，而不是只返回在聊天消息中。
+- 子 Agent 回执中的 `Task_ID` 与共享黑板一致，且结果已由 Main 写入同一份 `state.md`。
 - Main 或 Judge 已记录最终验收结论。
 
-> **重要说明：** `openclaw.json.example` 中的角色映射和 `matrix-config` 一类描述文件不会自动成为调度器。实际部署时仍需按照当前 OpenClaw 版本配置 Main 的子 Agent 调用权限、Session 可见性及必要的 Agent-to-Agent 权限，并通过真实调用完成验收。
+### 5. 首次运行初始化
 
-### 4. 初始化子 Agent（首次运行）
-
-首次启动子 Agent 时，OpenClaw 会为其 workspace 初始化 `MEMORY.md` 与 `memory/` 目录（记忆索引）。若子 Agent 从未启动过，其记忆索引不会建立——这属于正常现象，启动一次对应会话即可自动完成初始化。`workspace/state.md` 等活跃运行文件已被 `.gitignore` 排除，不会进入版本库。
+首次启动子 Agent 时，OpenClaw 会为其 workspace 初始化 `MEMORY.md` 与 `memory/` 目录。若子 Agent 从未启动过，其记忆索引不会建立——这属于正常现象，启动一次对应会话即可自动完成初始化。活跃运行文件（如 `workspace/state.md`）应保留在运行者 workspace 中，不应提交进源码仓库。
 
 ---
 
 ## 📂 目录结构
 
-- `/prompts`：包含各角色（`main.md`、`res.md`、`exe.md`、`dbg.md`、`judge.md`）的专属协议提示词。
-- `/workspace`：活跃的 `state.md` 总线与执行环境。
-- `/workspace/history`：已完成任务的自动归档目录。
-- `Architecture_v5.0.md`：用于自举配置的"可信源"文档。
-- `openclaw.json.example`：会话映射配置模板（真实 OpenClaw 格式）。
+```
+<project-root>/
+├── prompts/            # 各角色专属协议提示词（main.md, res.md, exe.md, dbg.md, judge.md）
+├── Architecture_v5.5.md  # v5.5 全局架构方案（自举配置的"可信源"文档）
+├── LICENSE
+└── README.md / README_EN.md
+```
+
+> `workspace/state.md`、`workspace/history/` 与可选的任务级 `MAM_state.md` 等运行时文件由使用者在 workspace 中生成或维护，不应视为仓库随附源码文件。
 
 ---
 
-## 🔄 自愈循环逻辑
+## 🔄 协议核心机制
 
-当 `Artifacts`（交付物）部分发生错误时：
-1. **检测**：`Debugger` 识别故障，并向 `## [3] 质量中心` 写入 `FAIL` 报告（含根因签名和严重等级）。
-2. **路由**：`Main` 读取报告，携带具体错误日志重新分配 `Executor`，保留已通过节点。
-3. **升级**：若同一阶段/根因签名连续失败 **3 次**，触发熔断（`CIRCUIT_OPEN`）：停止重调度，将任务退回 `Researcher` 要求实质性修订方案，或进入 `WAITING_USER` 请求人工介入；仅在有可验证进展或方案实质变更后才重置计数器。
+### 任务分流与评分模式
 
-### 任务分流规则
-
-Main 在接收任务后，先应用硬覆盖，再按加法评分确定模式，并记录到 `state.md`：
+Main 在接收任务后，先应用硬覆盖，再按多维加法评分确定模式，并将每个加分项及理由写入 `state.md`：
 
 | 模式 | 分数 | 适用场景 |
 |---|---|---|
@@ -135,21 +131,57 @@ Main 在接收任务后，先应用硬覆盖，再按加法评分确定模式，
 
 硬覆盖（优先于分数）：用户明确要求 Matrix/独立 QA → `FULL`；需要安全确认 → `WAITING_USER`；纯对话/只读 → `MAIN_ONLY`。
 
+评分维度（加法）：安全与失败影响 `+3`；多文件或跨组件 `+2`；实现与工具执行 `+2`；独立质量验证 `+2`；独立交付物与并行价值 `+2`；集成复杂度 `+2`；研究与需求不确定性 `+1`；长时运行与恢复敏感 `+1`。
+
+### 两层 DAG
+
+FULL 模式采用 Research DAG → Delivery DAG 两层结构：
+
+```
+Research DAG:   RES-1 || RES-2 || RES-3
+                         ↓ Main 验证每份回执，串行写入
+Delivery DAG:   EXE-* → DBG-* → INTEGRATION（按需）→ REGRESSION（按需）→ JUDGE
+```
+
+Main 每收到一个有效研究回执即通过 `DAG_Update` 增量解锁 Delivery 节点，无需等待同批全部完成。
+
+### Assignment 与 WORKER_COMPLETED 回执
+
+Main 为每个子任务创建唯一 Assignment（`Task_ID/Subtask_ID/Attempt`）。Worker 完成后返回标准 `WORKER_COMPLETED` JSON 回执，包含：`task_id`、`subtask_id`、`assignment_id`、`attempt`、`role`、`agent_id`、`session_key`、`run_id`、`status`、`target_section`、`result_summary`、`artifacts`、`evidence`、`errors`、`next`、`State_Patch`（Main 应写入目标章节的完整替换 Markdown）、`result_digest`（Main 必须重算验证，不信任 Worker 值）。
+
+Worker 不直接写 `state.md`；Main 校验回执后串行提交 `State_Patch`。
+
+### 并行隔离与集成
+
+并行 Executor 各使用 `<task_folder>/artifacts/<subtask-id>/` 或独立工作树，不得争用同一工作树。所有相关 Executor 完成并退出后，Integration 节点才获得集成范围的独占修改权，并运行跨模块接口、构建与整体行为回归。
+
+### 动态模型发现与按 Assignment 分配
+
+Main 从 OpenClaw 当前配置与 allowlist、用户显式提供的模型清单、目录/元数据发现以及受控最小探测中动态发现可用模型，为每个模型建立能力、成本、运行时与合规画像。
+
+分配时按每个 Assignment 的需求向量（角色、上下文、工具、预算、隐私等）先硬过滤、再打分。高能力/高价模型只分配给高杠杆或高难节点，轻量模型优先用于研究、格式校验和低风险执行，有效节省 Token 与成本。发现来源分层：`configured_allowed` > `targeted_probe` > `catalog_listed`；仅"看得见"不等于"能执行"，runtime 验收必须由真实子 Agent 运行结果证明。
+
+### 两级重试与熔断
+
+计数键为 `Task_ID + Subtask_ID + Stage + Root_Cause_Signature`。第一阶段：最多 3 次执行链重试（Attempt 1→4）；第三次重试仍失败则执行链熔断，退回 Researcher。第二阶段：Researcher 最多 3 次实质修订；第 3 次修订后仍失败进入 `WAITING_USER`。无依赖链路不受影响。
+
+### Judge 与完成门控
+
+Judge 仅在所有必要 Executor 与 Debugger 通过、无未解决失败/阻塞/熔断时启动，独立核验交付物、证据、Assignment/Digest 与安全边界，裁决仅为 `PASS` 或 `REJECTED`。
+
+Judge `PASS` 后，Main 原子幂等归档 `state.md` 至 `<workspace>/history/<task-id>/`，更新 `MAM_state.md` 长期记忆，重置活跃状态，报告完成——无需例行用户确认。破坏性/不可逆/外部/隐私敏感操作仍需用户同意。
+
+### MAM（跨任务长期记忆）
+
+`<task_folder>/MAM_state.md` 仅保留跨任务有效的项目概况、原则边界、关键决策、近期变更、验收证据与下一步起点。每个 Task 至多更新一次，且仅在 Judge `PASS` 后、归档前写入并回读验证。MAM 不包含完整 DAG、调度流水、运行日志或凭证。
+
 ### 生命周期状态
 
-`INIT → TRIAGED → DISPATCHING → RUNNING → VERIFYING → JUDGING → ARCHIVING → COMPLETED`
+```
+INIT → TRIAGED → DISPATCHING → RUNNING → VERIFYING → JUDGING → ARCHIVING → COMPLETED
+```
 
 侧边状态：`WAITING_USER`、`RETRYING`、`RECOVERING`、`CIRCUIT_OPEN`、`FAIL`
-
-### 节点账本
-
-每个调度节点在 `[1] 调度计划` 中维护：角色、依赖、状态（`BLOCKED_BY_DEPENDENCY / READY / RUNNING / PASS / FAIL / RETRYING / CIRCUIT_OPEN`）、授权章节、Agent ID、Session Key/Run ID、重试计数、时间戳、回执和写回证据。Main 仅调度 `READY` 节点；下游节点在前置节点 `PASS` 后解锁。
-
-### 完成门控与自动归档
-
-完成门控要求：交付物满足验收标准；所有必要检查通过；账本中每个必要节点均为 `PASS`；无未解决阻塞或熔断；所有回执/Task_ID/写回证据通过验证；Judge 返回 `PASS`；结构与安全约束成立。
-
-Judge `PASS` 后，Main 立即执行内部原子性幂等归档（以 `Task_ID` 命名），记录路径和校验和，重置活跃状态，并报告完成——**无需**例行用户确认。破坏性/不可逆操作、外部发布、凭证或隐私敏感访问、权限/安全边界变更**仍需**用户同意。
 
 ---
 

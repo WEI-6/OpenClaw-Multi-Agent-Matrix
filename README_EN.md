@@ -8,46 +8,51 @@
 
 [![OpenClaw](https://img.shields.io/badge/Powered%20by-OpenClaw-blueviolet)](https://github.com/OpenClaw/OpenClaw)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-v5.0--Stable-orange)](https://github.com/)
+[![Status](https://img.shields.io/badge/Status-v5.5--Stable-orange)](https://github.com/)
 
 ## 🌟 Overview
 
-**OpenClaw-Matrix** is a high-performance orchestration framework designed for complex AI tasks. By implementing a **"Centralized State Bus"** and **"Strict Role Decoupling,"** this system eliminates the common pitfalls of multi-agent workflows, such as context contamination, logic drifting, and infinite loops.
+**OpenClaw-Matrix** is a high-performance orchestration framework designed for complex AI tasks. By implementing a **"Centralized State Bus"** and **"Strict Role Decoupling,"** this system eliminates the common pitfalls of multi-agent workflows — context contamination, logic drifting, and infinite loops.
 
 The core of the system is the `state.md` file, which acts as a "Shared Blackboard" for all agents. **The standout feature is its Self-Bootstrapping capability: simply provide the architecture documentation, and OpenClaw will read, parse, and configure the entire matrix by itself.**
 
 ---
 
-## 🧠 Core Philosophy (The v5.0 Protocol)
+## 🧠 Core Philosophy (The v5.5 Protocol)
 
-1. **State Centralization (`state.md`)**: No direct agent-to-agent whispering. All communication flows through a single, structured Markdown file to ensure a "Single Source of Truth."
-2. **Strict Sandbox Isolation**: Each agent (Researcher, Executor, Debugger) operates in its own OpenClaw Session, maintaining a "clean" context focused only on its specific duty.
-3. **Summary-Driven Execution**: Agents are required to output structured summaries. The Main Controller makes routing decisions based solely on these summaries, significantly saving tokens and reducing hallucinations.
-4. **Lifecycle Automation**: From new task detection (via `New_Task_Flag`) to automatic internal archiving after Judge PASS, the system manages the entire task lifecycle autonomously. User confirmation is only required for destructive/irreversible/external/privacy-sensitive actions.
-5. **Runtime-Verifiable Dispatch**: Agent registration, role prompts (`.md` format), and workspace files only indicate that static configuration is complete. Main must actually invoke the assigned sub-Agents per the `Dispatch Plan`, create independent Sessions for them, and verify that results have been written back to the same `state.md`.
+1. **Main-Only State Authority**: `state.md` is the sole master state bus. Only Main may physically write, update, reset, or archive it. All Workers (Researcher, Executor, Debugger, Judge) are read-only; upon completion they return a `WORKER_COMPLETED` receipt and a proposed `State_Patch` to Main. Main validates and commits serially; Workers may compute in parallel.
+2. **Strict Sandbox Isolation**: Each Assignment is bound to an independent Session/Run with a defined file scope and acceptance criteria. Parallel Executors use separate work trees, branches, or artifact directories and must not contend over the same work tree.
+3. **Summary & Evidence Driven**: The state bus stores only status, summaries, evidence indexes, and Digests. Large artifacts and logs go in the task folder; sensitive data must not enter receipts or state.
+4. **Progressive Two-Layer DAG**: FULL mode first builds a Research DAG, then incrementally builds the Delivery DAG via `DAG_Update` as validated research results arrive. Uncontested nodes can be safely unlocked before the full research batch completes.
+5. **Dynamic Model Discovery & Per-Assignment Allocation**: Available models are discovered dynamically at deployment time and profiled for capability, cost, runtime, and compliance. Each Assignment gets a dedicated demand vector match — high-capability/high-cost models are reserved for high-leverage nodes; lightweight models cover research, format checks, and low-risk execution, saving tokens and cost.
+6. **Two-Level Retry & Circuit Breaking**: Failures first trigger up to 3 execution-chain retries, then escalate to Researcher for up to 3 substantive revisions. Independent chains are unaffected.
+7. **Lifecycle Automation**: From `New_Task_Flag` detection through Judge `PASS`, automatic archiving, and reset, the system manages the full lifecycle autonomously. User confirmation is only required for destructive/irreversible/external/privacy-sensitive actions.
+8. **Runtime-Verifiable Dispatch**: Static configuration does not equal an operational system. After configuration, Main must actually invoke a non-Main sub-Agent and prove dispatch with Assignment, Session/Run, receipt, and write-back evidence.
 
 ---
 
 ## 🏗️ Matrix Role Definitions
 
-| Role Group | ID | Responsibility | Key Output |
-| :--- | :--- | :--- | :--- |
-| **Controller** | `Main` | Global routing, DAG scheduling, and User interaction. | Dispatching & State Updates |
-| **Research Pool** | `Res_1~2` | Tech research, architecture design, and manual writing. | **Execution Manual** |
-| **Execution Pool** | `Exe_1~2` | Code implementation, environment setup, and deployment. | **Final Artifacts** |
-| **Debug Pool** | `Dbg_1~3` | Logic, boundary, and performance validation. | **Debug Feed / Logs** |
-| **Arbitrator** | `Judge` | Aggregating debug reports and final evaluation. | **Evaluation / Verdict** |
+| Role Group | ID | Responsibility | State Permission | Key Output |
+| :--- | :--- | :--- | :--- | :--- |
+| **Controller (Main)** | `main` | Triage, scoring, two-layer DAG, Assignment, receipt validation, serial state writes, archiving | Sole writer of `state.md` | State, dispatch & acceptance records |
+| **Research Pool** | `res_1~3` | Requirements/boundaries, design/interfaces, risk/acceptance research | Read-only | Research results, `State_Patch` |
+| **Execution Pool** | `exe_1~3` | Isolated implementation, tool execution, testing, artifact generation | Read-only state; authorized artifacts only | Artifacts, evidence, `State_Patch` |
+| **Debug Pool** | `dbg_1~3` | Logic, boundary, performance, security, and regression checks | Read-only | QA receipts, `State_Patch` |
+| **Integration** | Dynamic node | Exclusive artifact merge, conflict arbitration, regression | Read-only state; exclusive integration scope | Integrated artifacts & receipt |
+| **Arbitrator (Judge)** | `judge` | Independent completion gate and final verdict | Read-only | `PASS/REJECTED` receipt |
 
-> `res_1~2` and `exe_1~2` are enabled by default (pools can be extended to `_3` by adding an entry to `agents.list` in `openclaw.json` and creating the matching directory under `workspace/agents/`).
+Pool concurrency limits: Researcher max 3; Executor max 3; Debugger max 3; only 1 effective Integration node per artifact; Judge defaults to 1 instance. Actual concurrency is the minimum of READY nodes, available Agents, and pool limits.
 
 ---
 
 ## 🚀 Quick Start & Self-Configuration
 
-The most powerful aspect of this project is its **Auto-Config** capability. Follow these steps to let the system build itself:
 ### 1. Prerequisites
+
 - Ensure [OpenClaw](https://github.com/OpenClaw/OpenClaw) is installed and your LLM API is configured.
-- Prepare the project directory:
+- Clone the repository:
+
 ```bash
 git clone https://github.com/WEI-6/OpenClaw-Multi-Agent-Matrix.git
 cd OpenClaw-Multi-Agent-Matrix
@@ -55,76 +60,68 @@ cd OpenClaw-Multi-Agent-Matrix
 
 ### 2. Configure OpenClaw Session Mapping
 
-See [`openclaw.json.example`](./openclaw.json.example) (real OpenClaw config format with all 9 agents in `agents.list` and workspace mapping). Copy it to your own `openclaw.json` and replace the placeholders:
+Following the current OpenClaw documentation, add `agents.list` entries for each role (`main`, `res_1`, `res_2`, `exe_1`, `exe_2`, `dbg_1`, `dbg_2`, `dbg_3`, `judge`) in your `openclaw.json`, and assign each sub-agent an independent workspace path.
 
-```bash
-cp openclaw.json.example ~/.openclaw/openclaw.json
-```
+> ⚠️ Use only configuration fields supported by your installed version of OpenClaw. Do not introduce unsupported top-level fields.
 
-> ⚠️ Each sub-agent workspace must exist: `workspace/agents/{res_1,res_2,exe_1,exe_2,dbg_1,dbg_2,dbg_3,judge}/` (role-specific `AGENTS.md` prompts are included in the repo).
+### 3. The Self-Bootstrapping Command
 
-### 3. The "Self-Bootstrapping" Command
-Start your OpenClaw session and send the following instruction to the **Main Agent**:
+After completing the OpenClaw session mapping above, send the following instruction to the **Main Agent** so Main can initialize and verify the Matrix flow under the v5.5 protocol:
 
-> *"Please read and parse the `Architecture_v5.0.md` file in the root directory. Based on this document, autonomously configure my OpenClaw Matrix sessions, initialize the `state.md` bus, inject the role-specific prompts, and enter the INIT state for a new task."*
+> *"Please read and parse the `Architecture_v5.5.md` file in the root directory. Based on this document, check my OpenClaw Matrix session configuration, initialize the `state.md` bus, establish the dispatch constraints from the role-specific prompts in `/prompts`, and enter the INIT state for a new task."*
 
-**The system will automatically:**
-- Register all Agent IDs and Session IDs.
-- Inject the specialized Prompts for each role from the `/prompts` folder.
-- Generate the `state.md` template in your workspace (see [`workspace/state.md.example`](./workspace/state.md.example)).
-- Monitor for the `New_Task_Flag` to begin execution.
-- Grant Main restricted sub-Agent dispatch permissions, allowing only registered Matrix roles to be invoked.
-- Perform a runtime acceptance check upon completion to confirm that sub-Agent independent Sessions, shared blackboard read/write, and structured receipts are all genuinely active.
+**Main should complete or verify the following protocol steps:**
+- Verify the configured Agent IDs, Session mappings, and available models, then bind model discovery results to concrete Assignments.
+- Confirm that each role is configured in OpenClaw with the corresponding prompt from `/prompts` (`main.md`, `res.md`, `exe.md`, `dbg.md`, `judge.md`).
+- Initialize or inspect the `state.md` task bus template in the workspace.
+- When Main reads `state.md` during a turn, it handles `New_Task_Flag` according to the protocol; OpenClaw itself does not auto-poll files or enable Matrix just because a file exists.
+- Verify that Main has configured restricted sub-Agent dispatch permissions; permissions and allowlists must come from OpenClaw configuration and cannot be granted automatically by reading the architecture document.
+- After configuration, Main should run a runtime acceptance check proving independent sub-Agent Sessions, Main-only state writes, and structured receipts.
 
-### 3. Runtime Dispatch Acceptance
+### 4. Runtime Dispatch Acceptance
 
-Simply generating a role roster, prompts, workspace, and config files **does not mean the Matrix is operational**. Without real sub-Agent Sessions and shared blackboard write-back, the system remains a static deployment with no runtime scheduler enabled.
+Simply generating a role roster, prompts, and config files **does not mean the Matrix is operational**. Without real sub-Agent Sessions and shared blackboard write-back, the system remains a static deployment only.
 
-After configuration, the Main Agent must complete a minimal acceptance task:
+After configuration, Main must complete a minimal acceptance task:
 
 1. Create a unique `Task_ID` in `state.md` and write a clear `[Dispatch Plan]`.
 2. Actually invoke at least one non-Main sub-Agent per the plan — do not have Main simulate that role's output.
 3. Confirm that the role is running in an independent Session and record the actual Agent ID, Session ID, or Run ID.
-4. The sub-Agent must first read `state.md` from the same absolute path, then write structured results only to its authorized section.
-5. Main reads `state.md` again to confirm the `Task_ID` matches, the file modification time has updated, and the role's result genuinely exists.
-6. Judge or Main issues a `PASS / FAIL` verdict based on the above evidence; any missing evidence is treated as runtime dispatch not enabled.
+4. The sub-Agent reads `state.md` (read-only), then returns a `WORKER_COMPLETED` receipt and `State_Patch` only to its authorized section — it does not write directly to the bus.
+5. Main validates the receipt, recomputes `result_digest`, and serially commits the `State_Patch` upon successful validation.
+6. Judge independently reads the evidence and returns a `PASS / FAIL` verdict. Any missing evidence is treated as runtime dispatch not enabled.
 
-Acceptance requires all of the following to be true simultaneously:
-
-- A unique `Task_ID` and recent update time for the current task exist in `state.md`.
+Acceptance requires all of the following simultaneously:
+- A unique `Task_ID` and recent update time exist in `state.md`.
 - At least one assigned non-Main Agent has a real Session / Run.
-- The `Task_ID` in the sub-Agent's receipt matches the shared blackboard.
-- The sub-Agent's result has been written to the same shared blackboard, not just returned in a chat message.
+- The `Task_ID` in the sub-Agent's receipt matches the shared blackboard, and the result has been written to `state.md` by Main.
 - Main or Judge has recorded the final acceptance verdict.
 
-> **Important:** Role mappings in `openclaw.json.example` and descriptor files like `matrix-config` do not automatically become a scheduler. Actual deployment still requires configuring Main's sub-Agent invocation permissions, Session visibility, and necessary Agent-to-Agent permissions per the current OpenClaw version, and completing acceptance through real invocations.
+### 5. First-Run Initialization
 
-### 4. Initialize Sub-Agents (First Run)
-
-When a sub-agent starts for the first time, OpenClaw initializes `MEMORY.md` and the `memory/` directory (memory index) in its workspace. If a sub-agent has never been started, its memory index is simply not built — that is expected, and it will be initialized automatically once you start the corresponding session. Live runtime files such as `workspace/state.md` are excluded via `.gitignore` and never committed.
+When a sub-agent starts for the first time, OpenClaw initializes `MEMORY.md` and the `memory/` directory in its workspace. If a sub-agent has never been started, its memory index simply does not exist yet — start the corresponding session once and it initializes automatically. Live runtime files (e.g., `workspace/state.md`) should stay outside the committed repository.
 
 ---
 
 ## 📂 Directory Structure
 
-- `/prompts`: Contains the specialized protocol prompts for each role (`main.md`, `res.md`, `exe.md`, `dbg.md`, `judge.md`).
-- `/workspace`: The active `state.md` bus and execution environment.
-- `/workspace/history`: Automatic archives of completed tasks.
-- `Architecture_v5.0.md`: The "Source of Truth" document used for self-configuration.
-- `openclaw.json.example`: Template for session mapping (real OpenClaw format).
+```
+<project-root>/
+├── prompts/              # Role-specific protocol prompts (main.md, res.md, exe.md, dbg.md, judge.md)
+├── Architecture_v5.5.md  # v5.5 global architecture spec (the "Source of Truth" for self-configuration)
+├── LICENSE
+└── README.md / README_EN.md
+```
+
+> Runtime files such as `workspace/state.md`, `workspace/history/`, and an optional task-level `MAM_state.md` are generated or maintained in the operator's workspace and should not be treated as shipped source files.
 
 ---
 
-## 🔄 Self-Healing Loop Logic
+## 🔄 Protocol Core Mechanics
 
-When an error occurs in the `Artifacts` section:
-1. **Detection**: `Debugger` identifies the failure and writes a `FAIL` report to `## [3] Quality Center` (including root-cause signature and severity level).
-2. **Routing**: `Main` reads the report and re-assigns the `Executor` with specific error logs, preserving already-passed nodes.
-3. **Escalation**: If the same stage/root-cause signature fails **3 consecutive times**, the circuit opens (`CIRCUIT_OPEN`): dispatch stops, the task is returned to `Researcher` for a materially revised plan, or the system enters `WAITING_USER` for human intervention. The counter resets only after verifiable progress or a materially changed plan.
+### Task Triage & Scoring Modes
 
-### Task Triage Rules
-
-After receiving a task, Main applies hard overrides first, then additive scoring to determine the mode, and records it in `state.md`:
+After receiving a task, Main applies hard overrides first, then additive scoring to determine the mode, recording each scoring dimension and reason in `state.md`:
 
 | Mode | Score | Use Case |
 |---|---|---|
@@ -134,27 +131,63 @@ After receiving a task, Main applies hard overrides first, then additive scoring
 
 Hard overrides (take precedence over score): user explicitly requests Matrix/independent QA → `FULL`; safety confirmation required → `WAITING_USER`; pure conversation/read-only → `MAIN_ONLY`.
 
+Scoring dimensions (additive): safety & failure impact `+3`; multi-file or cross-component `+2`; implementation & tool execution `+2`; independent quality verification `+2`; independent deliverables & parallel value `+2`; integration complexity `+2`; research & requirement uncertainty `+1`; long-running & recovery-sensitive `+1`.
+
+### Two-Layer DAG
+
+FULL mode uses a Research DAG → Delivery DAG two-layer structure:
+
+```
+Research DAG:   RES-1 || RES-2 || RES-3
+                         ↓ Main validates each receipt, commits serially
+Delivery DAG:   EXE-* → DBG-* → INTEGRATION (if needed) → REGRESSION (if needed) → JUDGE
+```
+
+Main incrementally unlocks Delivery nodes via `DAG_Update` as each valid research receipt arrives, without waiting for the full research batch to complete.
+
+### Assignment & WORKER_COMPLETED Receipt
+
+Main creates a unique Assignment (`Task_ID/Subtask_ID/Attempt`) for each subtask. Workers return a standard `WORKER_COMPLETED` JSON receipt containing: `task_id`, `subtask_id`, `assignment_id`, `attempt`, `role`, `agent_id`, `session_key`, `run_id`, `status`, `target_section`, `result_summary`, `artifacts`, `evidence`, `errors`, `next`, `State_Patch` (complete replacement Markdown for the target section that Main should write), and `result_digest` (Main must recompute and verify; the Worker's value is not trusted).
+
+Workers do not write `state.md` directly. Main validates the receipt and serially commits the `State_Patch`.
+
+### Parallel Isolation & Integration
+
+Parallel Executors each use `<task_folder>/artifacts/<subtask-id>/` or an independent work tree; they must not contend over the same tree. Only after all relevant Executors have completed and exited does the Integration node acquire exclusive modification rights over the integration scope, then runs cross-module interface, build, and regression checks.
+
+### Dynamic Model Discovery & Per-Assignment Allocation
+
+Main dynamically discovers available models from the OpenClaw configuration and allowlist, user-supplied model lists, catalog/metadata discovery, and targeted minimal probes. Each model receives a capability, cost, runtime, and compliance profile.
+
+Allocation follows a per-Assignment demand vector (role, context, tooling, budget, privacy, etc.) — hard-filter first, then score. High-capability/high-cost models are reserved for high-leverage or high-difficulty nodes; lightweight models prioritize research, format validation, and low-risk execution, saving tokens and cost. Evidence tiers: `configured_allowed` > `targeted_probe` > `catalog_listed`. Being "visible" does not mean "executable" — runtime acceptance must be proven by a real sub-Agent run.
+
+### Two-Level Retry & Circuit Breaking
+
+The counter key is `Task_ID + Subtask_ID + Stage + Root_Cause_Signature`. Level 1: up to 3 execution-chain retries (Attempt 1→4); if the 4th attempt still fails with the same root cause, the chain trips (`CIRCUIT_OPEN`) and the task is returned to Researcher. Level 2: Researcher provides up to 3 substantively different plans; after the 3rd revision still fails, the system enters `WAITING_USER`. Independent chains are never blocked.
+
+### Judge & Completion Gate
+
+Judge starts only after all required Executors and Debuggers pass, with no unresolved failures, blockers, or open circuits. Judge independently verifies deliverables, evidence, Assignment/Digest, and security boundaries. The verdict is either `PASS` or `REJECTED`.
+
+After Judge `PASS`, Main atomically and idempotently archives `state.md` to `<workspace>/history/<task-id>/`, updates `MAM_state.md` long-term memory, resets active state, and reports completion — no routine user confirmation required. Destructive/irreversible/external/privacy-sensitive operations still require user consent.
+
+### MAM (Cross-Task Long-Term Memory)
+
+`<task_folder>/MAM_state.md` retains only cross-task-valid information: project overview, active principles, boundaries, key decisions, recent changes, acceptance evidence, risks, and next starting point. It is updated at most once per Task, only after Judge `PASS` and before archiving, with a mandatory readback verification. MAM must not contain full DAG copies, scheduling logs, session data, or credentials.
+
 ### Lifecycle States
 
-`INIT → TRIAGED → DISPATCHING → RUNNING → VERIFYING → JUDGING → ARCHIVING → COMPLETED`
+```
+INIT → TRIAGED → DISPATCHING → RUNNING → VERIFYING → JUDGING → ARCHIVING → COMPLETED
+```
 
 Side states: `WAITING_USER`, `RETRYING`, `RECOVERING`, `CIRCUIT_OPEN`, `FAIL`
-
-### Node Ledger
-
-Each dispatched node is tracked in `[1] Dispatch Plan` with: role, dependency, status (`BLOCKED_BY_DEPENDENCY / READY / RUNNING / PASS / FAIL / RETRYING / CIRCUIT_OPEN`), authorized section, Agent ID, Session Key/Run ID, retry count, timestamps, receipt, and write-back evidence. Main only dispatches `READY` nodes; downstream nodes unlock only after prerequisite nodes reach `PASS`.
-
-### Completion Gate & Auto-Archive
-
-The completion gate requires: deliverables satisfy acceptance criteria; all required checks pass; every required ledger node is `PASS`; no unresolved blockers or open circuits; all receipts/Task_IDs/write-back evidence validate; Judge returns `PASS`; structure and safety constraints hold.
-
-After Judge `PASS`, Main immediately performs an internal atomic idempotent archive (named by `Task_ID`), records path and checksum evidence, resets active state, and reports completion — **no routine user confirmation required**. Destructive/irreversible operations, external publication, credential or privacy-sensitive access, and permission/security-boundary changes **still require** user consent.
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions to the Matrix Protocol! Whether it's optimizing Prompt efficiency, refining the `state.md` structure, or adding new specialized roles, feel free to open a PR.
+We welcome contributions to the Matrix Protocol! Whether it's optimizing prompt efficiency, refining the `state.md` structure, or adding new specialized roles, feel free to open a PR.
 
 ---
 

@@ -1,4 +1,4 @@
-# 🚀 OpenClaw 多 Agent 矩阵协作系统全局架构方案 (v5.0)
+# 🚀 OpenClaw 多 Agent 矩阵协作系统全局架构方案 (v5.5)
 
 ---
 
