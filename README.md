@@ -8,7 +8,7 @@
 
 [![OpenClaw](https://img.shields.io/badge/Powered%20by-OpenClaw-blueviolet)](https://github.com/OpenClaw/OpenClaw)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-v5.5--Stable-orange)](https://github.com/)
+[![Status](https://img.shields.io/badge/Status-V5.6--Stable-orange)](https://github.com/)
 
 ## 🌟 项目简介
 
@@ -18,7 +18,7 @@
 
 ---
 
-## 🧠 核心设计理念（v5.5 协议）
+## 🧠 核心设计理念（V5.6 协议）
 
 1. **Main 单写状态中心**：`state.md` 是任务的唯一主状态总线。仅 Main 可物理写入、更新、重置或归档；所有 Worker（Researcher、Executor、Debugger、Judge）均只读总线，完成后向 Main 返回 `WORKER_COMPLETED` 回执及建议的 `State_Patch`。Main 验证后串行提交，Worker 可并行计算。
 2. **严格沙盒隔离**：每个 Assignment 绑定独立 Session/Run、明确文件范围和验收标准。并行 Executor 使用独立工作树、分支或产物目录，不能直接争用同一工作树。
@@ -66,9 +66,9 @@ cd OpenClaw-Multi-Agent-Matrix
 
 ### 3. 自举启动指令
 
-完成上面的 OpenClaw 会话映射后，向 **Main Agent** 发送以下指令，让 Main 按 v5.5 协议初始化并执行一次可验证的自举流程：
+完成上面的 OpenClaw 会话映射后，向 **Main Agent** 发送以下指令，让 Main 按 V5.6 协议初始化并执行一次可验证的自举流程：
 
-> *"请读取并解析根目录下的 `Architecture_v5.5.md` 文件。根据此文档，检查我的 OpenClaw Matrix 会话配置，初始化 `state.md` 总线，按 `/prompts` 中的角色提示词建立调度约束，并进入新任务的 INIT 状态。"*
+> *"请读取并解析根目录下的 `Architecture_V5.6.md` 文件。根据此文档，检查我的 OpenClaw Matrix 会话配置，初始化 `state.md` 总线，按 `/prompts` 中的角色提示词建立调度约束，并进入新任务的 INIT 状态。"*
 
 **Main 应按协议完成或核验：**
 - 核验已配置的 Agent ID、Session 映射与可用模型，并将模型发现结果绑定到具体 Assignment。
@@ -108,7 +108,7 @@ cd OpenClaw-Multi-Agent-Matrix
 ```
 <project-root>/
 ├── prompts/            # 各角色专属协议提示词（main.md, res.md, exe.md, dbg.md, judge.md）
-├── Architecture_v5.5.md  # v5.5 全局架构方案（自举配置的"可信源"文档）
+├── Architecture_V5.6.md  # V5.6 全局架构方案（自举配置的"可信源"文档）
 ├── LICENSE
 └── README.md / README_EN.md
 ```

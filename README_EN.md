@@ -8,7 +8,7 @@
 
 [![OpenClaw](https://img.shields.io/badge/Powered%20by-OpenClaw-blueviolet)](https://github.com/OpenClaw/OpenClaw)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-v5.5--Stable-orange)](https://github.com/)
+[![Status](https://img.shields.io/badge/Status-V5.6--Stable-orange)](https://github.com/)
 
 ## 🌟 Overview
 
@@ -18,7 +18,7 @@ The core of the system is the `state.md` file, which acts as a "Shared Blackboar
 
 ---
 
-## 🧠 Core Philosophy (The v5.5 Protocol)
+## 🧠 Core Philosophy (The V5.6 Protocol)
 
 1. **Main-Only State Authority**: `state.md` is the sole master state bus. Only Main may physically write, update, reset, or archive it. All Workers (Researcher, Executor, Debugger, Judge) are read-only; upon completion they return a `WORKER_COMPLETED` receipt and a proposed `State_Patch` to Main. Main validates and commits serially; Workers may compute in parallel.
 2. **Strict Sandbox Isolation**: Each Assignment is bound to an independent Session/Run with a defined file scope and acceptance criteria. Parallel Executors use separate work trees, branches, or artifact directories and must not contend over the same work tree.
@@ -66,9 +66,9 @@ Following the current OpenClaw documentation, add `agents.list` entries for each
 
 ### 3. The Self-Bootstrapping Command
 
-After completing the OpenClaw session mapping above, send the following instruction to the **Main Agent** so Main can initialize and verify the Matrix flow under the v5.5 protocol:
+After completing the OpenClaw session mapping above, send the following instruction to the **Main Agent** so Main can initialize and verify the Matrix flow under the V5.6 protocol:
 
-> *"Please read and parse the `Architecture_v5.5.md` file in the root directory. Based on this document, check my OpenClaw Matrix session configuration, initialize the `state.md` bus, establish the dispatch constraints from the role-specific prompts in `/prompts`, and enter the INIT state for a new task."*
+> *"Please read and parse the `Architecture_V5.6.md` file in the root directory. Based on this document, check my OpenClaw Matrix session configuration, initialize the `state.md` bus, establish the dispatch constraints from the role-specific prompts in `/prompts`, and enter the INIT state for a new task."*
 
 **Main should complete or verify the following protocol steps:**
 - Verify the configured Agent IDs, Session mappings, and available models, then bind model discovery results to concrete Assignments.
@@ -108,7 +108,7 @@ When a sub-agent starts for the first time, OpenClaw initializes `MEMORY.md` and
 ```
 <project-root>/
 ├── prompts/              # Role-specific protocol prompts (main.md, res.md, exe.md, dbg.md, judge.md)
-├── Architecture_v5.5.md  # v5.5 global architecture spec (the "Source of Truth" for self-configuration)
+├── Architecture_V5.6.md  # V5.6 global architecture spec (the "Source of Truth" for self-configuration)
 ├── LICENSE
 └── README.md / README_EN.md
 ```

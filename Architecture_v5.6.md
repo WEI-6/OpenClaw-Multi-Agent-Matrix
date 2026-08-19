@@ -1,4 +1,4 @@
-# 🚀 OpenClaw 多 Agent 矩阵协作系统全局架构方案 (v5.6)
+# 🚀 OpenClaw 多 Agent 矩阵协作系统全局架构方案 (V5.6)
 
 ---
 
@@ -744,25 +744,25 @@ MAM 不得包含完整聊天/状态副本、全量 DAG、调度与重试流水�
 
 ## 六、 V5.6 架构升级：Coordinator/Integration 运行时调度模型 (V5.6 Upgrade: Coordinator/Integration Runtime Orchestration)
 
-> **版本标记**：本章为 v5.5 → v5.6 增量升级规范。所有 v5.5 条款（一至五章）继续有效；本章仅在其上新增或明确 Coordinator/Integration 运行时调度层的职责、边界与协议。
+> **版本标记**：本章为 V5.6 → V5.6 增量升级规范。所有 V5.6 条款（一至五章）继续有效；本章仅在其上新增或明确 Coordinator/Integration 运行时调度层的职责、边界与协议。
 
 ---
 
 ### 6.1 升级动因与核心目标 (Motivation & Goals)
 
-v5.5 中 Main 既是唯一状态写入者，又需逐节点跟进 Delivery 阶段的波次派发、重试仲裁与产物汇总，导致 Main 上下文消耗过高，且调度细节与状态主权职责耦合。
+V5.6 中 Main 既是唯一状态写入者，又需逐节点跟进 Delivery 阶段的波次派发、重试仲裁与产物汇总，导致 Main 上下文消耗过高，且调度细节与状态主权职责耦合。
 
-v5.6 目标：
+V5.6 目标：
 - **Main 保留状态主权**，但将 Delivery 阶段的运行时编排权有界授权给 Coordinator/Integration 角色。
 - 引入 **Delegated_Runtime_Authority**（有界、可撤销的运行时编排授权），使 Coordinator 可在授权范围内独立驱动波次、处理局部重试、汇总阶段产物，无需每步回报 Main。
 - 引入 **Stage Package / Final Coordinator Package**、**Coordinator Ledger Artifact** 与 **Judge Direct Verdict Channel**，使 Main 只需在关键节点（授权、包接受、归档）介入，而非参与每一节点调度。
-- 保留 EXE 证据边界、MAM 读写门禁、两级熔断与 Judge 独立裁决等全部 v5.5 护栏。
+- 保留 EXE 证据边界、MAM 读写门禁、两级熔断与 Judge 独立裁决等全部 V5.6 护栏。
 
 ---
 
-### 6.2 Main 状态主权边界（v5.6 精化）(Main State Sovereignty)
+### 6.2 Main 状态主权边界（V5.6 精化）(Main State Sovereignty)
 
-v5.6 中 Main 的专属职责精化为以下最小必要集，不得再扩展：
+V5.6 中 Main 的专属职责精化为以下最小必要集，不得再扩展：
 
 | 职责 | 说明 |
 |---|---|
@@ -771,7 +771,7 @@ v5.6 中 Main 的专属职责精化为以下最小必要集，不得再扩展：
 | **Research 回执验收与串行写入** | 接受 RES Worker 回执，串行写入 Blackboard，触发 DAG_Update |
 | **Coordinator Package 接受** | 在 Delivery 阶段结束时接受 Final Coordinator Package，串行写入状态 |
 | **Judge 裁决写入** | 接受 Judge Direct Verdict，写入 `[4] Evaluation` |
-| **MAM 更新与归档** | 按 v5.5 第 7 步门禁，Judge PASS 后更新 MAM、归档、重置 |
+| **MAM 更新与归档** | 按 V5.6 第 7 步门禁，Judge PASS 后更新 MAM、归档、重置 |
 | **熔断升级决策** | 当 Coordinator 上报熔断事件时，Main 决定退回 Researcher 还是 WAITING_USER |
 
 **Main 在 Delivery 阶段不再逐节点派发 EXE/DBG；此职责委托给 Coordinator。** Main 只在收到 Final Coordinator Package 时做一次完整验收写入。
@@ -805,7 +805,7 @@ Coordinator（可复用 Integration 角色实例担任）在 `Delegated_Runtime_
 
 1. **波次派发（Wave Dispatch）**：按 Delivery DAG 拓扑，将 READY EXE 节点同波次派发给对应 Executor Agent；依赖未满足的节点保持 `BLOCKED_BY_DEPENDENCY`。
 2. **局部重试仲裁（Local Retry Arbitration）**：在授权范围内对 FAIL 节点执行最多 Attempt 1→3 的重试；Attempt 4 同根因失败时停止，生成熔断事件并上报 Main，不得自行扩展重试次数。
-3. **产物汇总与冲突仲裁（Artifact Aggregation & Conflict Resolution）**：按 v5.5 第 4 步的 `Model_Capability_Order` 仲裁实现冲突；记录双方、模型等级、采用方案和理由。
+3. **产物汇总与冲突仲裁（Artifact Aggregation & Conflict Resolution）**：按 V5.6 第 4 步的 `Model_Capability_Order` 仲裁实现冲突；记录双方、模型等级、采用方案和理由。
 4. **Stage Package 生成（Stage Package Reporting）**：每个 Delivery 波次结束后生成 Stage Package，记录本波次产物路径、证据摘要、节点状态与局部重试记录。
 5. **Final Coordinator Package 生成**：全部 EXE/DBG/Integration/Regression 节点 PASS 后，汇总所有 Stage Package，生成 Final Coordinator Package 并提交 Main 接受。
 6. **Coordinator Ledger Artifact 维护**：全程维护一份不可变的调度台账（Ledger），记录每次波次派发、重试、产物汇总与冲突决策，供 Judge 和 Main 审计。
@@ -852,7 +852,7 @@ Coordinator（可复用 Integration 角色实例担任）在 `Delegated_Runtime_
 - **Generated_At**: `<timestamp>`
 ```
 
-Main 在接受 Final Coordinator Package 时，按 v5.5 第 4 步的回执验证流程检查：产物存在、节点状态完整、无未解决熔断、Ledger 可读。验证通过后串行写入 `state.md` 对应章节，并解锁 Judge。
+Main 在接受 Final Coordinator Package 时，按 V5.6 第 4 步的回执验证流程检查：产物存在、节点状态完整、无未解决熔断、Ledger 可读。验证通过后串行写入 `state.md` 对应章节，并解锁 Judge。
 
 ---
 
@@ -872,7 +872,7 @@ Ledger 只允许追加，不得覆盖历史记录。Judge 和 Main 在验收时�
 
 ### 6.7 Judge Direct Verdict Channel
 
-在 v5.6 中，Judge 在完成独立核验后，通过 **Judge Direct Verdict Channel** 直接向 Main 提交裁决回执，格式与 v5.5 `WORKER_COMPLETED` 回执兼容，但新增以下字段：
+在 V5.6 中，Judge 在完成独立核验后，通过 **Judge Direct Verdict Channel** 直接向 Main 提交裁决回执，格式与 V5.6 `WORKER_COMPLETED` 回执兼容，但新增以下字段：
 
 ```json
 {
@@ -893,17 +893,17 @@ Ledger 只允许追加，不得覆盖历史记录。Judge 和 Main 在验收时�
 }
 ```
 
-Main 接受 Judge Direct Verdict 后，按 v5.5 第 6 步门禁写入 `[4] Evaluation`，并触发 MAM 更新与归档流程。
+Main 接受 Judge Direct Verdict 后，按 V5.6 第 6 步门禁写入 `[4] Evaluation`，并触发 MAM 更新与归档流程。
 
-**Judge 核验范围在 v5.6 中扩展为包含：**
+**Judge 核验范围在 V5.6 中扩展为包含：**
 - Final Coordinator Package 完整性与 Ready_For_Judge = TRUE
 - Coordinator Ledger Artifact 可读性与关键记录完整性
 - `Delegated_Runtime_Authority` 未被越权使用
-- 所有 v5.5 第 6 步的原有门控条件
+- 所有 V5.6 第 6 步的原有门控条件
 
 ---
 
-### 6.8 Main Minimal State Writes（v5.6 最小写入集）
+### 6.8 Main Minimal State Writes（V5.6 最小写入集）
 
 在引入 Coordinator 后，Main 的 `state.md` 写入操作精简为以下必要集：
 
@@ -921,9 +921,9 @@ Main 不得在 Delivery 阶段写入每个 EXE/DBG 节点的逐步调度记录�
 
 ---
 
-### 6.9 v5.5 护栏的继承与保留
+### 6.9 V5.6 护栏的继承与保留
 
-以下 v5.5 机制在 v5.6 中**完整保留，不受 Coordinator 委托影响**：
+以下 V5.6 机制在 V5.6 中**完整保留，不受 Coordinator 委托影响**：
 
 - **`<task_folder>` 定义与选择原则**（五章第 1 节）：Coordinator 不得修改 Task_Folder。
 - **EXE 证据边界**：EXE 节点的执行证据只能作为 execution evidence 写入回执；Coordinator 汇总时不得将其升格为 acceptance 或 QA gate。
