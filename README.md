@@ -125,9 +125,9 @@ Main 在接收任务后，先应用硬覆盖，再按多维加法评分确定模
 
 | 模式 | 分数 | 适用场景 |
 |---|---|---|
-| `MAIN_ONLY` | 0–2 | 纯对话、只读查询、微小可逆操作 |
-| `MINIMAL` | 3–5 | 单专家 + 按需验证 |
-| `FULL` | ≥6 | 完整 Researcher → Executor → Debugger → Judge DAG |
+| `MAIN_ONLY` | 0–2 | 纯对话、只读查询、微小可逆操作；Main 直接处理，不派发子 Agent |
+| `MINIMAL` | 3–5 | 轻量 Matrix 路径：Main 跳过 Research DAG，直接建立 Delivery DAG 并派发真实非 Main 角色（EXE-* 等）；链路为 Main 分流/模型分配 → Delivery DAG → EXE-* → DBG-*（按风险）→ Integration（按需）→ Judge（按风险）|
+| `FULL` | ≥6 | 完整两层 DAG：Research DAG → Delivery DAG → EXE-* → DBG-* → Integration → Judge |
 
 硬覆盖（优先于分数）：用户明确要求 Matrix/独立 QA → `FULL`；需要安全确认 → `WAITING_USER`；纯对话/只读 → `MAIN_ONLY`。
 

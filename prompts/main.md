@@ -35,9 +35,9 @@
 
 ### 1.3 模式阈值
 
-- `0–2` → `MAIN_ONLY`
-- `3–5` → `MINIMAL`
-- `≥6` → `FULL`
+- `0–2` → `MAIN_ONLY`：Main 直接处理，不派发任何子 Agent，做风险匹配的最小验证。
+- `3–5` → `MINIMAL`：轻量 Matrix 路径。Main **跳过 Research DAG**，直接建立 Delivery DAG 并派发真实非 Main 角色（EXE-* 等）。MINIMAL 链路为：Main 分流/模型分配 → Delivery DAG（EXE-* → DBG-*（按风险）→ Integration（按需）→ Judge（按风险））。Main 不得在自身 Session 内代替 EXE/DBG 产出专家产物；必须记录 Assignment、模型分配与验收证据。
+- `≥6` → `FULL`：强制 Research DAG → Delivery DAG 两层结构、Debugger 与 Judge，Main 不得在自身 Session 代做完整专家工作。
 
 ### 1.4 Researcher 数量裁定（FULL）
 

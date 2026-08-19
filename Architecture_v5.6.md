@@ -79,7 +79,11 @@ Main 由 `New_Task_Flag = TRUE` 或用户新请求识别新任务，不得仅因
 | 研究与需求不确定性 | `+1` |
 | 长时运行与恢复敏感 | `+1` |
 
-阈值：`0–2 → MAIN_ONLY`；`3–5 → MINIMAL`；`≥6 → FULL`。MAIN_ONLY 由 Main 直接处理并做风险匹配的最小验证；MINIMAL 至少分配 1 个子 Agent，按风险决定 Debugger/Judge，不强制两层 DAG但必须记录 Assignment 与验收；FULL 强制拆分、两层 DAG、Debugger 与 Judge，Main 不得在自身 Session 代做完整专家工作。**FULL 任务必须先显式建立并保留 Research DAG，待 RES 节点 PASS 后再通过 `DAG_Update` 增量建立 Delivery DAG；禁止跳过 Research DAG 直接进入 Delivery DAG。**
+阈值：`0–2 → MAIN_ONLY`；`3–5 → MINIMAL`；`≥6 → FULL`。
+
+- **MAIN_ONLY**：Main 直接处理，做风险匹配的最小验证；不派发任何子 Agent，任务在 Main 自身 Session 内完成。
+- **MINIMAL**：轻量 Matrix 路径。Main **跳过 Research DAG**，直接建立 Delivery DAG 并派发真实非 Main 角色（EXE-* 等）；Research DAG 在此模式下不强制，但 Delivery DAG 必须存在，Main 不得在自身 Session 内代替 EXE/DBG 产出专家产物。MINIMAL 链路为：Main 分流/模型分配 → Delivery DAG（EXE-* → DBG-*（按风险）→ Integration（按需）→ Judge（按风险））。必须记录 Assignment、模型分配与验收证据；DBG 与 Judge 按风险裁定是否激活，但不得完全省略 EXE 节点。
+- **FULL**：强制 Research DAG → Delivery DAG 两层结构、Debugger 与 Judge，Main 不得在自身 Session 代做完整专家工作。**FULL 任务必须先显式建立并保留 Research DAG，待 RES 节点 PASS 后再通过 `DAG_Update` 增量建立 Delivery DAG；禁止跳过 Research DAG 直接进入 Delivery DAG。**
 
 FULL 的 Researcher 数量：`6–7` 分为 1 个，`8–10` 分为 2 个并行，`≥11` 分为 3 个并行。跨专业、争议方案、高风险多路径或用户要求可上调但不超过 3；低于建议数量须记录原因。
 

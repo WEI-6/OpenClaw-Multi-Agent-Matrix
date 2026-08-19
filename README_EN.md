@@ -125,9 +125,9 @@ After receiving a task, Main applies hard overrides first, then additive scoring
 
 | Mode | Score | Use Case |
 |---|---|---|
-| `MAIN_ONLY` | 0–2 | Pure conversation, read-only lookup, tiny reversible operations |
-| `MINIMAL` | 3–5 | Single specialist + proportionate verification |
-| `FULL` | ≥6 | Full Researcher → Executor → Debugger → Judge DAG |
+| `MAIN_ONLY` | 0–2 | Pure conversation, read-only lookup, tiny reversible operations; Main handles directly, no sub-Agent dispatched |
+| `MINIMAL` | 3–5 | Lightweight Matrix path: Main skips Research DAG, directly creates a Delivery DAG and dispatches real non-Main roles (EXE-* etc.). Chain: Main triage/model allocation → Delivery DAG → EXE-* → DBG-* (risk-gated) → Integration (if needed) → Judge (risk-gated). Main must not produce expert artifacts in its own session. |
+| `FULL` | ≥6 | Full two-layer DAG: Research DAG → Delivery DAG → EXE-* → DBG-* → Integration → Judge |
 
 Hard overrides (take precedence over score): user explicitly requests Matrix/independent QA → `FULL`; safety confirmation required → `WAITING_USER`; pure conversation/read-only → `MAIN_ONLY`.
 
