@@ -58,17 +58,11 @@ git clone https://github.com/WEI-6/OpenClaw-Multi-Agent-Matrix.git
 cd OpenClaw-Multi-Agent-Matrix
 ```
 
-### 2. Configure OpenClaw Session Mapping
+### 2. The Self-Bootstrapping Command
 
-Following the current OpenClaw documentation, add `agents.list` entries for each role (`main`, `res_1`, `res_2`, `exe_1`, `exe_2`, `dbg_1`, `dbg_2`, `dbg_3`, `judge`) in your `openclaw.json`, and assign each sub-agent an independent workspace path.
+Send the following instruction to the **Main Agent** so Main reads the architecture document and automatically completes session mapping, bootstrap configuration, workspace initialization, and one verifiable bootstrap flow under the V5.6 protocol:
 
-> ⚠️ Use only configuration fields supported by your installed version of OpenClaw. Do not introduce unsupported top-level fields.
-
-### 3. The Self-Bootstrapping Command
-
-After completing the OpenClaw session mapping above, send the following instruction to the **Main Agent** so Main can initialize and verify the Matrix flow under the V5.6 protocol:
-
-> *"Please read and parse the `Architecture_V5.6.md` file in the root directory. Based on this document, check my OpenClaw Matrix session configuration, initialize the `state.md` bus, establish the dispatch constraints from the role-specific prompts in `/prompts`, and enter the INIT state for a new task."*
+> *"Please read and parse the `Architecture_V5.6.md` file in the repository root (full relative path: `./Architecture_V5.6.md`). Treat `Architecture_V5.6.md` as the sole architecture source for this Matrix system build and bootstrap, and strictly construct the system according to the roles, state bus, DAG, receipt, dispatch, acceptance, and archiving protocols defined there. Using that file as the base directory, check my OpenClaw Matrix session configuration, initialize the `state.md` bus in the same directory, and strictly apply the role prompts in the sibling `./prompts/` directory before entering the INIT state for a new task."*
 
 **Main should complete or verify the following protocol steps:**
 - Verify the configured Agent IDs, Session mappings, and available models, then bind model discovery results to concrete Assignments.
@@ -78,7 +72,10 @@ After completing the OpenClaw session mapping above, send the following instruct
 - Verify that Main has configured restricted sub-Agent dispatch permissions; permissions and allowlists must come from OpenClaw configuration and cannot be granted automatically by reading the architecture document.
 - After configuration, Main should run a runtime acceptance check proving independent sub-Agent Sessions, Main-only state writes, and structured receipts.
 
-### 4. Runtime Dispatch Acceptance
+### 3. Runtime Dispatch Acceptance
+
+> **Important:** `Architecture_V5.6.md` is the sole architecture source for building and bootstrapping the Matrix system, and its protocol definitions must be followed strictly. `Architecture_V5.6.md` and `prompts/` are both anchored at the repository root. Do not interpret `prompts` as `/prompts` at the Linux filesystem root; it means `./prompts/` next to `Architecture_V5.6.md`.
+
 
 Simply generating a role roster, prompts, and config files **does not mean the Matrix is operational**. Without real sub-Agent Sessions and shared blackboard write-back, the system remains a static deployment only.
 
@@ -97,7 +94,7 @@ Acceptance requires all of the following simultaneously:
 - The `Task_ID` in the sub-Agent's receipt matches the shared blackboard, and the result has been written to `state.md` by Main.
 - Main or Judge has recorded the final acceptance verdict.
 
-### 5. First-Run Initialization
+### 4. First-Run Initialization
 
 When a sub-agent starts for the first time, OpenClaw initializes `MEMORY.md` and the `memory/` directory in its workspace. If a sub-agent has never been started, its memory index simply does not exist yet — start the corresponding session once and it initializes automatically. Live runtime files (e.g., `workspace/state.md`) should stay outside the committed repository.
 

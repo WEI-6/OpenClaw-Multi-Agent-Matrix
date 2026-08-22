@@ -58,17 +58,11 @@ git clone https://github.com/WEI-6/OpenClaw-Multi-Agent-Matrix.git
 cd OpenClaw-Multi-Agent-Matrix
 ```
 
-### 2. 配置 OpenClaw 会话映射
+### 2. 自举启动指令
 
-参考当前 OpenClaw 文档，在 `openclaw.json` 中为各角色（`main`、`res_1`、`res_2`、`exe_1`、`exe_2`、`dbg_1`、`dbg_2`、`dbg_3`、`judge`）添加 `agents.list` 条目，并为每个子 Agent 指定独立的 workspace 路径。
+向 **Main Agent** 发送以下指令，让 Main 读取架构文档，并按 V5.6 协议自动完成会话映射、自举配置、工作区初始化与一次可验证的自举流程：
 
-> ⚠️ 配置格式以当前安装版本的 OpenClaw schema 为准；仅使用 OpenClaw 支持的配置字段。
-
-### 3. 自举启动指令
-
-完成上面的 OpenClaw 会话映射后，向 **Main Agent** 发送以下指令，让 Main 按 V5.6 协议初始化并执行一次可验证的自举流程：
-
-> *"请读取并解析根目录下的 `Architecture_V5.6.md` 文件。根据此文档，检查我的 OpenClaw Matrix 会话配置，初始化 `state.md` 总线，按 `/prompts` 中的角色提示词建立调度约束，并进入新任务的 INIT 状态。"*
+> *"请读取并解析仓库根目录下的 `Architecture_V5.6.md` 文件（完整相对路径：`./Architecture_V5.6.md`）。请将 `Architecture_V5.6.md` 作为本次 Matrix 系统构建与自举的唯一架构依据，严格按照其中定义的角色、状态总线、DAG、回执、调度、验收与归档协议构建整套系统。以该文件所在目录为基准，检查我的 OpenClaw Matrix 会话配置，初始化同目录下的 `state.md` 总线，并严格按该文件同目录下的 `./prompts/` 目录中的角色提示词建立调度约束，进入新任务的 INIT 状态。"*
 
 **Main 应按协议完成或核验：**
 - 核验已配置的 Agent ID、Session 映射与可用模型，并将模型发现结果绑定到具体 Assignment。
@@ -78,7 +72,10 @@ cd OpenClaw-Multi-Agent-Matrix
 - 核验 Main 具备已配置的受限子 Agent 调度权限；权限与 allowlist 需由 OpenClaw 配置提供，不能由读取架构文档自动授予。
 - 配置完成后，由 Main 发起一次运行时验收，确认子 Agent 的独立 Session、Main 单写状态总线和结构化回执均真实生效。
 
-### 4. 运行时调度验收
+### 3. 运行时调度验收
+
+> **重要：** `Architecture_V5.6.md` 是 Matrix 系统构建与自举的唯一架构依据，必须严格按其中定义的协议执行。`Architecture_V5.6.md` 与 `prompts/` 都以仓库根目录为基准。不要把 `prompts` 误解为 Linux 根目录下的 `/prompts`；这里指的是 `./prompts/`（即 `Architecture_V5.6.md` 同目录下的 `prompts/`）。
+
 
 仅生成角色名单、提示词和配置文件，**不代表 Matrix 已经投入运行**。没有真实的子 Agent Session 和共享黑板写回，系统仍然只是静态部署。
 
@@ -97,7 +94,7 @@ cd OpenClaw-Multi-Agent-Matrix
 - 子 Agent 回执中的 `Task_ID` 与共享黑板一致，且结果已由 Main 写入同一份 `state.md`。
 - Main 或 Judge 已记录最终验收结论。
 
-### 5. 首次运行初始化
+### 4. 首次运行初始化
 
 首次启动子 Agent 时，OpenClaw 会为其 workspace 初始化 `MEMORY.md` 与 `memory/` 目录。若子 Agent 从未启动过，其记忆索引不会建立——这属于正常现象，启动一次对应会话即可自动完成初始化。活跃运行文件（如 `workspace/state.md`）应保留在运行者 workspace 中，不应提交进源码仓库。
 
