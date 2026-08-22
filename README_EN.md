@@ -91,6 +91,7 @@ After configuration, Main must complete a minimal acceptance task:
 Acceptance requires all of the following simultaneously:
 - A unique `Task_ID` and recent update time exist in `state.md`.
 - At least one assigned non-Main Agent has a real Session / Run.
+- `READY` / `current active` only means the node may be scheduled, not that it has executed; a Delivery/EXE node enters execution only after a real Agent ID, Session Key, and Run ID have been recorded.
 - The `Task_ID` in the sub-Agent's receipt matches the shared blackboard, and the result has been written to `state.md` by Main.
 - Main or Judge has recorded the final acceptance verdict.
 
@@ -140,7 +141,7 @@ Research DAG:   RES-1 || RES-2 || RES-3
 Delivery DAG:   EXE-* → DBG-* → INTEGRATION (if needed) → REGRESSION (if needed) → JUDGE
 ```
 
-Main incrementally unlocks Delivery nodes via `DAG_Update` as each valid research receipt arrives, without waiting for the full research batch to complete.
+Main incrementally unlocks Delivery nodes via `DAG_Update` as each valid research receipt arrives, without waiting for the full research batch to complete. **Unlocking is not execution**: a Delivery node only enters `RUNNING` after a real non-Main Agent has been dispatched and a real `Agent ID` / `Session Key` / `Run ID` exists. Main must never relabel Main-only edits as EXE work, and must not unlock DBG/Judge nodes that depend on an EXE PASS it did not actually obtain.
 
 ### Assignment & WORKER_COMPLETED Receipt
 

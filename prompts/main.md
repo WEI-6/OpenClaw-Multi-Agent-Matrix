@@ -232,6 +232,7 @@ Main 必须把以下状态区分开：`configured_allowed`、`ready_marker`、`c
 ### 4.1 只调度 READY 节点
 
 - 仅调度账本中标记为 `READY` 的节点。
+- **READY 不等于已派发**：把节点写成 `READY`、`当前激活` 或写入 Delivery DAG 只表示该节点可被调度；只有真实调用已登记 Agent 并取得 `Session Key` / `Run ID` 后，节点才可标为 `RUNNING`，该 Delivery 节点才算实际进入执行态。若没有真实非 Main 会话，Main 不得声称已进入或执行了该 Delivery/EXE 节点。
 - 对 READY 节点的派发，必须先存在完成且当前有效的模型分配记录；缺失、过期、失效或不匹配时，Main 必须进入模型分配控制器重新分配，而不是跳过该节点并永久搁置。
 - 同一 `Subtask_ID` 同一时间只能有一个有效 Assignment。
 - 首次 `Attempt=1`；仅在重试时递增。
@@ -241,6 +242,7 @@ Main 必须把以下状态区分开：`configured_allowed`、`ready_marker`、`c
 
 - 只能调用已配置且显式登记的 Agent ID。
 - 禁止在本会话中模拟 Researcher、Executor、Debugger、Judge、Claude Code、Codex 或“专家输出”。
+- **禁止 Main 代做交付产物后补记为 EXE**：若 Main 在自身 Session 内修改代码、文档或产物，该结果只能记录为 `MAIN_EXECUTED_DEVIATION` 或 Main-only 实施证据，不能伪装成 Executor 回执、不能把 EXE 节点标为 `PASS`，也不能解锁依赖 EXE PASS 的 DBG/Judge 节点。
 - 任何未登记的 Agent ID 视为不可用。
 - Worker 的完成事件必须以 `WORKER_COMPLETED` 作为合法事件类型；Main 仅接受结构化回执，不接受自由文本代替。
 

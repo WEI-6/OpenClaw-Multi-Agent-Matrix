@@ -91,6 +91,7 @@ cd OpenClaw-Multi-Agent-Matrix
 验收至少应同时满足：
 - `state.md` 中存在当前任务的唯一 `Task_ID` 和最近更新时间。
 - 至少一个已分配的非 Main Agent 存在真实 Session / Run。
+- `READY` / `当前激活` 只表示节点可调度，不表示已执行；只有记录真实 Agent ID、Session Key 和 Run ID 后，Delivery/EXE 节点才算进入执行态。
 - 子 Agent 回执中的 `Task_ID` 与共享黑板一致，且结果已由 Main 写入同一份 `state.md`。
 - Main 或 Judge 已记录最终验收结论。
 
@@ -140,7 +141,7 @@ Research DAG:   RES-1 || RES-2 || RES-3
 Delivery DAG:   EXE-* → DBG-* → INTEGRATION（按需）→ REGRESSION（按需）→ JUDGE
 ```
 
-Main 每收到一个有效研究回执即通过 `DAG_Update` 增量解锁 Delivery 节点，无需等待同批全部完成。
+Main 每收到一个有效研究回执即通过 `DAG_Update` 增量解锁 Delivery 节点，无需等待同批全部完成。**解锁不等于执行**：Delivery 节点从 `READY` 进入 `RUNNING` 必须有真实非 Main Agent 派发证据，包括 Agent ID、Session Key 与 Run ID；Main 自己完成的代码或文档修改不得补记为 EXE 产物，也不得解锁依赖 EXE PASS 的 DBG/Judge 节点。
 
 ### Assignment 与 WORKER_COMPLETED 回执
 
